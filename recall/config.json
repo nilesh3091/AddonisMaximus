@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "appearance": { "theme": "strava", "chart": "area", "corners": "round" },
+  "sections": {
+    "order": ["goals", "activity", "streak", "forecast", "answerButtons", "hourly", "fsrs", "deckBoard", "records", "achievements"],
+    "hidden": []
+  },
+  "goals": [
+    { "key": "cards", "label": "Cards", "icon": "layers", "source": "total", "unit": "count", "weeklyTarget": 1200 },
+    { "key": "time", "label": "Study Time", "icon": "clock", "source": "time", "unit": "time", "weeklyTarget": 25200 },
+    { "key": "new", "label": "New Cards", "icon": "plus", "source": "newC", "unit": "count", "weeklyTarget": 120 },
+    { "key": "days", "label": "Days Studied", "icon": "check", "source": "daysStudied", "unit": "days", "weeklyTarget": 7 }
+  ],
+  "data": {
+    "includeDecks": [],
+    "cutoffHour": null,
+    "matureThresholdDays": 21,
+    "streakMinCards": 1
+  }
+}

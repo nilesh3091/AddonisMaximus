@@ -1,0 +1,241 @@
+/* Chart primitives: Ring, TrendChart (area/line/bar + hover), Bars. */
+import React from "react";
+
+// measure container width (crisp text, responsive)
+export function useMeasure() {
+  const ref = React.useRef(null);
+  const [w, setW] = React.useState(0);
+  React.useLayoutEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver((es) => setW(es[0].contentRect.width));
+    ro.observe(ref.current);
+    setW(ref.current.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w];
+}
+
+// ---- circular progress ring -------------------------------------------
+export function Ring({ value, max, size = 96, stroke = 9, color = "var(--accent)", children, delay = 0 }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const pct = Math.max(0, Math.min(1, max ? value / max : 0));
+  // Initialise at the final value so the ring is correct on first paint, then
+  // animate when `value` changes (range toggle).
+  const [draw, setDraw] = React.useState(pct);
+  React.useEffect(() => {
+    const id = setTimeout(() => setDraw(pct), 30 + delay);
+    return () => clearTimeout(id);
+  }, [pct, delay]);
+  const over = value >= max && max > 0;
+  return (
+    <div style={{ position: "relative", width: size, height: size }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--ring-track)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+          strokeLinecap="round" strokeDasharray={c}
+          strokeDashoffset={c * (1 - draw)}
+          style={{ transition: "stroke-dashoffset 1.1s cubic-bezier(.2,.8,.2,1)", filter: over ? "drop-shadow(0 0 6px var(--glow))" : "none" }}
+        />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>{children}</div>
+    </div>
+  );
+}
+
+// ---- x-axis month/year labels from Date buckets -----------------------
+function axisLabels(data, range) {
+  const out = [];
+  if (range === "year") {
+    data.forEach((d, i) => out.push({ i, text: d.label.getUTCFullYear() }));
+    return out;
+  }
+  let prevMo = -1;
+  data.forEach((d, i) => {
+    const mo = d.label.getUTCMonth();
+    if (range === "month") {
+      out.push({ i, text: d.label.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" }).toUpperCase() });
+    } else {
+      if (mo !== prevMo) {
+        out.push({ i, text: d.label.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" }).toUpperCase() });
+        prevMo = mo;
+      }
+    }
+  });
+  return out;
+}
+
+// ---- main trend chart --------------------------------------------------
+export function TrendChart({ data, height = 190, type = "area", range = "week", valueFmt = (v) => v, accent = "var(--accent)" }) {
+  const [ref, w] = useMeasure();
+  const [hover, setHover] = React.useState(null);
+  const padL = 6, padR = 46, padT = 16, padB = 26;
+  const W = Math.max(w, 60);
+  const innerW = W - padL - padR;
+  const innerH = height - padT - padB;
+  const max = Math.max(1, ...data.map((d) => d.value));
+  const niceMax = niceCeil(max);
+  const n = data.length;
+  const x = (i) => padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  const xBar = (i) => padL + (i + 0.5) * (innerW / n);
+  const y = (v) => padT + innerH * (1 - v / niceMax);
+  const labels = axisLabels(data, range);
+
+  const linePts = data.map((d, i) => [x(i), y(d.value)]);
+  const linePath = linePts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+  const areaPath = linePath + ` L ${x(n - 1).toFixed(1)} ${(padT + innerH).toFixed(1)} L ${x(0).toFixed(1)} ${(padT + innerH).toFixed(1)} Z`;
+
+  const gridVals = [0, niceMax / 2, niceMax];
+
+  const onMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    let best = 0, bd = 1e9;
+    for (let i = 0; i < n; i++) {
+      const px = type === "bar" ? xBar(i) : x(i);
+      const d = Math.abs(px - mx);
+      if (d < bd) { bd = d; best = i; }
+    }
+    setHover(best);
+  };
+
+  return (
+    <div ref={ref} style={{ width: "100%", position: "relative" }}>
+      {w > 0 && (
+        <svg width={W} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)} style={{ display: "block", cursor: "crosshair" }}>
+          <defs>
+            <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={accent} stopOpacity="0.34" />
+              <stop offset="100%" stopColor={accent} stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          {gridVals.map((gv, k) => (
+            <g key={k}>
+              <line x1={padL} x2={padL + innerW} y1={y(gv)} y2={y(gv)} stroke="var(--line)" strokeWidth="1" />
+              <text x={W - padR + 8} y={y(gv) + 4} className="tick" style={{ fontSize: 11 }}>{valueFmt(gv)}</text>
+            </g>
+          ))}
+          {type === "bar" ? (
+            data.map((d, i) => {
+              const bw = Math.min(28, (innerW / n) * 0.62);
+              const bh = innerH * (d.value / niceMax);
+              const active = hover === i;
+              return (
+                <rect key={i} x={xBar(i) - bw / 2} y={padT + innerH - bh} width={bw} height={Math.max(0, bh)}
+                  rx="3" fill={accent} opacity={hover == null || active ? 1 : 0.45}
+                  style={{ transition: "opacity .12s" }} />
+              );
+            })
+          ) : (
+            <>
+              <path d={areaPath} fill="url(#areaFill)" />
+              <path d={linePath} fill="none" stroke={accent} strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round" />
+              {data.map((d, i) => {
+                const active = hover === i;
+                const last = i === n - 1;
+                return (
+                  <circle key={i} cx={x(i)} cy={y(d.value)} r={active ? 5 : last ? 4.5 : 3.4}
+                    fill={last && !active ? "var(--card)" : accent} stroke={accent} strokeWidth="2" />
+                );
+              })}
+            </>
+          )}
+          {hover != null && (
+            <line x1={type === "bar" ? xBar(hover) : x(hover)} x2={type === "bar" ? xBar(hover) : x(hover)}
+              y1={padT} y2={padT + innerH} stroke="var(--text3)" strokeWidth="1" strokeDasharray="3 3" />
+          )}
+          {labels.map((l, k) => {
+            const lx = type === "bar" ? xBar(l.i) : x(l.i);
+            const anchor = l.i === 0 ? "start" : l.i === n - 1 ? "end" : "middle";
+            return <text key={k} x={lx} y={height - 7} textAnchor={anchor} className="tick" style={{ fontSize: 11 }}>{l.text}</text>;
+          })}
+        </svg>
+      )}
+      {hover != null && data[hover] && (
+        <Tooltip x={(type === "bar" ? xBar(hover) : x(hover))} W={W}
+          title={bucketTitle(data[hover].label, range)} value={valueFmt(data[hover].value)} />
+      )}
+    </div>
+  );
+}
+
+function Tooltip({ x, W, title, value }) {
+  const left = Math.max(8, Math.min(W - 130, x - 60));
+  return (
+    <div className="fade" style={{
+      position: "absolute", top: 0, left, width: 120, pointerEvents: "none",
+      background: "var(--card2)", border: "1px solid var(--border)", borderRadius: 9,
+      padding: "7px 10px", boxShadow: "0 8px 24px rgba(0,0,0,.35)", zIndex: 5,
+    }}>
+      <div style={{ fontSize: 10.5, color: "var(--text3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" }}>{title}</div>
+      <div className="num" style={{ fontSize: 18, marginTop: 2 }}>{value}</div>
+    </div>
+  );
+}
+
+function bucketTitle(date, range) {
+  if (range === "year") return date.getUTCFullYear();
+  if (range === "month") return date.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+  return "Wk of " + date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+export function niceCeil(v) {
+  if (v <= 0) return 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(v)));
+  const f = v / mag;
+  const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+  return nice * mag;
+}
+
+// ---- generic vertical bars (stacked optional) -------------------------
+export function Bars({ data, height = 150, segments = null, colors = ["var(--accent)"], valueFmt = (v) => v, labelEvery = 5, axis = true }) {
+  const [ref, w] = useMeasure();
+  const [hover, setHover] = React.useState(null);
+  const padL = 4, padR = axis ? 40 : 6, padT = 12, padB = 22;
+  const W = Math.max(w, 60);
+  const innerW = W - padL - padR, innerH = height - padT - padB;
+  const totals = data.map((d) => (segments ? segments.reduce((a, s) => a + d[s], 0) : d.value));
+  const niceMax = niceCeil(Math.max(1, ...totals));
+  const n = data.length;
+  const xb = (i) => padL + (i + 0.5) * (innerW / n);
+  const bw = Math.min(26, (innerW / n) * 0.66);
+  const gridVals = axis ? [0, niceMax / 2, niceMax] : [];
+  return (
+    <div ref={ref} style={{ width: "100%", position: "relative" }}>
+      {w > 0 && (
+        <svg width={W} height={height} onMouseLeave={() => setHover(null)} style={{ display: "block" }}>
+          {gridVals.map((gv, k) => (
+            <g key={k}>
+              <line x1={padL} x2={padL + innerW} y1={padT + innerH * (1 - gv / niceMax)} y2={padT + innerH * (1 - gv / niceMax)} stroke="var(--line)" />
+              <text x={W - padR + 7} y={padT + innerH * (1 - gv / niceMax) + 4} className="tick" style={{ fontSize: 10.5 }}>{valueFmt(gv)}</text>
+            </g>
+          ))}
+          {data.map((d, i) => {
+            let acc = 0;
+            const parts = segments || ["value"];
+            const active = hover === i;
+            return (
+              <g key={i} onMouseEnter={() => setHover(i)}>
+                <rect x={xb(i) - bw / 2 - 2} y={padT} width={bw + 4} height={innerH} fill="transparent" />
+                {parts.map((s, si) => {
+                  const v = d[s];
+                  const h = innerH * (v / niceMax);
+                  const yy = padT + innerH - acc - h;
+                  acc += h;
+                  return <rect key={si} x={xb(i) - bw / 2} y={yy} width={bw} height={Math.max(0, h)} rx="2.5"
+                    fill={colors[si % colors.length]} opacity={hover == null || active ? 1 : 0.4} style={{ transition: "opacity .12s" }} />;
+                })}
+                {i % labelEvery === 0 && <text x={xb(i)} y={height - 6} textAnchor="middle" className="tick" style={{ fontSize: 10.5 }}>{d.x}</text>}
+              </g>
+            );
+          })}
+        </svg>
+      )}
+      {hover != null && data[hover] && (
+        <Tooltip x={xb(hover)} W={W} title={data[hover].tip || data[hover].x}
+          value={valueFmt(totals[hover])} />
+      )}
+    </div>
+  );
+}

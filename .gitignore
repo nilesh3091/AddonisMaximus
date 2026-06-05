@@ -1,0 +1,13 @@
+# dev deps for the web layer
+web-src/node_modules/
+
+# python
+__pycache__/
+*.pyc
+
+# anki dev artifacts
+recall/meta.json
+recall/recall.log
+
+# os
+.DS_Store

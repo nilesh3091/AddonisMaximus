@@ -1,0 +1,76 @@
+/* Window mode: slim top bar (gear + brand), page header + range toggle, the
+   single-column card list (order/visibility from config), and the settings
+   drawer. Used by the standalone Progress window. */
+import React from "react";
+import { Icon } from "./icons.jsx";
+import { useRecallState, visibleSections } from "./useRecall.jsx";
+import { renderCard } from "./cardmap.jsx";
+import { SettingsDrawer } from "./settings.jsx";
+
+function RangeToggle({ value, onChange }) {
+  return (
+    <div className="range-toggle">
+      {["week", "month", "year"].map((r) => (
+        <button key={r} className={value === r ? "active" : ""} onClick={() => onChange(r)}>
+          {r[0].toUpperCase() + r.slice(1)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function App() {
+  const { config, setConfig, anki } = useRecallState();
+  const [range, setRange] = React.useState("week");
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    const el = document.documentElement;
+    el.setAttribute("data-theme", config.appearance.theme);
+    el.setAttribute("data-radius", config.appearance.corners === "sharp" ? "sharp" : "round");
+  }, [config.appearance]);
+
+  const openSettings = () => setSettingsOpen(true);
+  const ctx = { anki, range, chartType: config.appearance.chart, onAddGoal: openSettings };
+  const visible = visibleSections(config);
+
+  return (
+    <div className="app-shell">
+      <div className="topbar">
+        <button className="gearbtn" onClick={openSettings} aria-label="Open settings" title="Settings">
+          <Icon name="gear" size={20} />
+        </button>
+        <div className="brand"><span className="mark"><Icon name="brain" size={14} sw={2} /></span>Recall</div>
+        <div className="spacer" />
+        <div className="sync"><Icon name="rotate" size={14} /> Synced just now</div>
+      </div>
+
+      <div className="page">
+        <div className="wrap">
+          <div className="phead">
+            <div>
+              <h1>
+                Your Progress
+                <span className="streak-pill"><span className="flame"><Icon name="flame" size={15} fill="currentColor" sw={1.4} /></span>{anki.streakDays}-day streak</span>
+              </h1>
+              <div className="sub">A Strava-style view of everything you study in Anki.</div>
+            </div>
+            <RangeToggle value={range} onChange={setRange} />
+          </div>
+
+          {visible.length === 0 ? (
+            <div className="card"><div className="empty-hint">All cards are hidden. Open <b>Settings</b> (gear, top-left) to turn some back on.</div></div>
+          ) : (
+            <div className="grid">
+              {visible.map((key) => <div key={key}>{renderCard(key, ctx)}</div>)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {settingsOpen && (
+        <SettingsDrawer config={config} setConfig={setConfig} anki={anki} onClose={() => setSettingsOpen(false)} />
+      )}
+    </div>
+  );
+}
