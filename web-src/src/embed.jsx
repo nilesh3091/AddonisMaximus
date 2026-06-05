@@ -1,15 +1,13 @@
-/* Embedded mode: a compact carousel that lives on Anki's home screen below the
-   heatmap. One enabled card at a time; arrows / dots / swipe move between them.
+/* Embedded mode: a compact carousel on Anki's home screen below the heatmap.
+   One enabled card at a time; arrows / dots / swipe move between them.
    - Surfaces blend with Anki's own background (read at runtime).
-   - Every card is scaled to fit one height, so flipping never needs scrolling. */
+   - The whole carousel is sized down via a single zoom (`.embed-inner`), and
+     cards keep their natural height, so nothing is ever clipped. */
 import React from "react";
 import { Icon } from "./icons.jsx";
 import { useRecallState, visibleSections } from "./useRecall.jsx";
 import { renderCard } from "./cardmap.jsx";
 import { SettingsDrawer } from "./settings.jsx";
-
-const MAX_H = 480; // cards taller than this scale down to fit
-const MIN_H = 240; // keep short cards from looking cramped
 
 function RangeToggle({ value, onChange }) {
   return (
@@ -62,9 +60,7 @@ export function EmbeddedApp({ host }) {
   const [range, setRange] = React.useState("week");
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [idx, setIdx] = React.useState(0);
-  const [fit, setFit] = React.useState({ scale: 1, h: MIN_H });
   const dragX = React.useRef(null);
-  const contentRef = React.useRef(null);
 
   React.useEffect(() => {
     if (!host) return;
@@ -78,28 +74,7 @@ export function EmbeddedApp({ host }) {
   const safeIdx = n ? Math.min(idx, n - 1) : 0;
   const cur = visible[safeIdx];
 
-  // Fit the current card to one height: scale down if taller than MAX_H. Charts
-  // size themselves asynchronously, so re-measure on resize + a couple of ticks.
-  React.useLayoutEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
-    let raf = 0;
-    const measure = () => {
-      const nat = el.offsetHeight || 0; // pre-transform layout height
-      if (!nat) return;
-      const scale = nat > MAX_H ? MAX_H / nat : 1;
-      const h = Math.max(MIN_H, Math.min(MAX_H, Math.round(nat * scale)));
-      setFit((prev) => (prev.h === h && Math.abs(prev.scale - scale) < 0.001 ? prev : { scale, h }));
-    };
-    measure();
-    const ro = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(measure); });
-    ro.observe(el);
-    const t1 = setTimeout(measure, 80);
-    const t2 = setTimeout(measure, 300);
-    return () => { ro.disconnect(); clearTimeout(t1); clearTimeout(t2); cancelAnimationFrame(raf); };
-  }, [cur, range, n]);
-
-  const go = (d) => setIdx(() => (n ? (safeIdx + d + n) % n : 0));
+  const go = (d) => setIdx((prev) => { const c = n ? Math.min(prev, n - 1) : 0; return n ? (c + d + n) % n : 0; });
   const onPointerDown = (e) => { dragX.current = e.clientX; };
   const onPointerUp = (e) => {
     if (dragX.current == null) return;
@@ -109,40 +84,40 @@ export function EmbeddedApp({ host }) {
   };
 
   const openSettings = () => setSettingsOpen(true);
-  const ctx = { anki, range, chartType: config.appearance.chart, onAddGoal: openSettings };
+  const ctx = { anki, range, chartType: config.appearance.chart, onAddGoal: openSettings, compact: true };
 
   return (
     <div className="embed">
-      <div className="embed-bar">
-        <button className="gearbtn" onClick={openSettings} aria-label="Open settings" title="Settings"><Icon name="gear" size={19} /></button>
-        <div className="ebrand"><span className="mark"><Icon name="brain" size={13} sw={2} /></span>Recall</div>
-        <span className="streak-pill"><span className="flame"><Icon name="flame" size={13} fill="currentColor" sw={1.4} /></span>{anki.streakDays}d</span>
-        <div className="spacer" />
-        <RangeToggle value={range} onChange={setRange} />
-      </div>
+      <div className="embed-inner">
+        <div className="embed-bar">
+          <button className="gearbtn" onClick={openSettings} aria-label="Open settings" title="Settings"><Icon name="gear" size={19} /></button>
+          <div className="ebrand"><span className="mark"><Icon name="brain" size={13} sw={2} /></span>Recall</div>
+          <span className="streak-pill"><span className="flame"><Icon name="flame" size={13} fill="currentColor" sw={1.4} /></span>{anki.streakDays}d</span>
+          <div className="spacer" />
+          <RangeToggle value={range} onChange={setRange} />
+        </div>
 
-      {n === 0 ? (
-        <div className="card"><div className="empty-hint">No cards enabled. Open <b>Settings</b> (gear) to turn some on.</div></div>
-      ) : (
-        <>
-          <div className="embed-stage" style={{ height: fit.h }} onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
-            <div className="embed-scaler" style={{ transform: `scale(${fit.scale})` }}>
-              <div className="fade" key={cur + range} ref={contentRef}>{renderCard(cur, ctx)}</div>
+        {n === 0 ? (
+          <div className="card"><div className="empty-hint">No cards enabled. Open <b>Settings</b> (gear) to turn some on.</div></div>
+        ) : (
+          <>
+            <div className="embed-stage" onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
+              <div className="fade" key={cur + range}>{renderCard(cur, ctx)}</div>
             </div>
-          </div>
-          {n > 1 && (
-            <div className="embed-nav">
-              <button className="embed-arrow" onClick={() => go(-1)} aria-label="Previous card"><Icon name="chevronL" size={17} /></button>
-              <div className="embed-dots">
-                {visible.map((k, i) => (
-                  <button key={k} className={"embed-dot" + (i === safeIdx ? " active" : "")} onClick={() => setIdx(i)} aria-label={"Card " + (i + 1)} />
-                ))}
+            {n > 1 && (
+              <div className="embed-nav">
+                <button className="embed-arrow" onClick={() => go(-1)} aria-label="Previous card"><Icon name="chevronL" size={17} /></button>
+                <div className="embed-dots">
+                  {visible.map((k, i) => (
+                    <button key={k} className={"embed-dot" + (i === safeIdx ? " active" : "")} onClick={() => setIdx(i)} aria-label={"Card " + (i + 1)} />
+                  ))}
+                </div>
+                <button className="embed-arrow" onClick={() => go(1)} aria-label="Next card"><Icon name="chevronR" size={17} /></button>
               </div>
-              <button className="embed-arrow" onClick={() => go(1)} aria-label="Next card"><Icon name="chevronR" size={17} /></button>
-            </div>
-          )}
-        </>
-      )}
+            )}
+          </>
+        )}
+      </div>
 
       {settingsOpen && (
         <SettingsDrawer config={config} setConfig={setConfig} anki={anki} onClose={() => setSettingsOpen(false)} />

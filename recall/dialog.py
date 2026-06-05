@@ -32,11 +32,10 @@ class RecallDialog(QDialog):
 
     def _render(self) -> None:
         cfg = config_store.get_config()
-        base = core.web_base()
         body = (
             '<div id="root"></div>'
             f"<script>window.__RECALL__ = {core.bootstrap_json(cfg, 'window')};</script>"
-            f'<script src="{base}/recall.js"></script>'
+            f'<script src="{core.script_url()}"></script>'
         )
         self.web.stdHtml(body, css=[], js=[], default_css=False, context=self)
 

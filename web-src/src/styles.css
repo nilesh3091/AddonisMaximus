@@ -237,9 +237,9 @@ body, :host {
 .embed-bar .ebrand { display: flex; align-items: center; gap: 8px; font-family: var(--font-num); font-weight: 800; font-size: 15px; letter-spacing: -0.02em; }
 .embed-bar .ebrand .mark { width: 20px; height: 20px; border-radius: 6px; background: var(--accent); display: grid; place-items: center; color: var(--accent-ink); }
 .embed-bar .spacer { flex: 1; }
-.embed-stage { position: relative; overflow: hidden; touch-action: pan-y; transition: height .25s ease; }
-.embed-scaler { transform-origin: top center; }
-.embed-scaler > * { width: 100%; }
+/* one knob to size the whole carousel down to the heatmap's weight */
+.embed-inner { zoom: 0.82; }
+.embed-stage { position: relative; touch-action: pan-y; }
 /* the full-width "See more" CTA is redundant in the carousel — open the window instead */
 .embed .btn-wide { display: none; }
 .embed-nav { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 12px; }
@@ -254,6 +254,26 @@ body, :host {
 .embed-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ring-track); border: 0; padding: 0; cursor: pointer; transition: background .15s, transform .15s; }
 .embed-dot.active { background: var(--accent); transform: scale(1.25); }
 .embed-pos { font-size: 12px; color: var(--text3); font-weight: 600; min-width: 46px; text-align: center; font-family: var(--font-num); }
+
+/* compact density for the carousel (matches the heatmap's weight) */
+.embed-bar .ebrand { font-size: 14px; }
+.embed-bar .ebrand .mark { width: 18px; height: 18px; border-radius: 5px; }
+.embed-bar .gearbtn { width: 28px; height: 28px; }
+.embed-bar .range-toggle { padding: 3px; }
+.embed-bar .range-toggle button { padding: 5px 11px; font-size: 12.5px; }
+.embed .card { padding: 14px 16px; }
+.embed .card-h { margin-bottom: 12px; }
+.embed .card-h h2 { font-size: 13px; }
+.embed .card-h .act { font-size: 12px; }
+.embed .stat-row { gap: 20px; margin: 12px 0 4px; }
+.embed .stat .label-sm { margin-bottom: 3px; }
+.embed .stat .big { font-size: 21px; }
+.embed .stat .big .u { font-size: 12px; }
+.embed .tabs { gap: 6px; }
+.embed .tab { padding: 6px 11px; font-size: 12px; }
+.embed .tab .ti svg { width: 13px; height: 13px; }
+.embed .label { font-size: 11.5px; }
+.embed .label-sm { font-size: 10.5px; }
 
 /* ======================= SETTINGS DRAWER ============================= */
 .scrim {

@@ -156,9 +156,14 @@ export function buildAnki(raw, config) {
   // ---- streak ----------------------------------------------------------
   const streakMin = (config && config.data && config.data.streakMinCards) || 1;
   function computeStreakDays() {
+    // Count consecutive studied days ending today. If today isn't studied YET,
+    // the streak is still alive — count back from yesterday (don't reset to 0).
     let s = 0;
     for (let i = days.length - 1; i >= 0; i--) {
-      if (days[i].studied && days[i].total >= streakMin) s++; else break;
+      const ok = days[i].studied && days[i].total >= streakMin;
+      if (ok) { s++; }
+      else if (i === days.length - 1) { continue; } // today not done yet
+      else { break; }
     }
     return s;
   }

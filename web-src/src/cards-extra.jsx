@@ -1,4 +1,5 @@
-/* Extra cards: Forecast, AnswerButtons, Hourly, FSRS, DeckBoard, Records, Achievements. */
+/* Extra cards: Forecast, AnswerButtons, Hourly, FSRS, DeckBoard, Records,
+   Achievements. `compact` shrinks sizes for the home-screen carousel. */
 import React from "react";
 import { Icon } from "./icons.jsx";
 import { Ring, Bars, useMeasure } from "./charts.jsx";
@@ -25,7 +26,7 @@ function Legend({ items }) {
 }
 
 // ============================ FORECAST =================================
-export function ForecastCard({ anki }) {
+export function ForecastCard({ anki, compact }) {
   const fmt = anki.fmt;
   const data = anki.forecast.map((f) => ({
     x: f.day === 0 ? "Today" : "+" + f.day,
@@ -34,6 +35,7 @@ export function ForecastCard({ anki }) {
   }));
   const dueTomorrow = anki.forecast[1] ? anki.forecast[1].total : 0;
   const weekTotal = anki.forecast.slice(0, 7).reduce((a, f) => a + f.total, 0);
+  const stat = compact ? 17 : 22;
   return (
     <div className="card">
       <div className="card-h">
@@ -41,10 +43,10 @@ export function ForecastCard({ anki }) {
         <span className="label-sm">Next 30 days</span>
       </div>
       <div style={{ display: "flex", gap: 28, marginBottom: 6 }}>
-        <div><div className="label-sm">Due tomorrow</div><div className="num" style={{ fontSize: 22 }}>{dueTomorrow}</div></div>
-        <div><div className="label-sm">Next 7 days</div><div className="num" style={{ fontSize: 22 }}>{weekTotal.toLocaleString()}</div></div>
+        <div><div className="label-sm">Due tomorrow</div><div className="num" style={{ fontSize: stat }}>{dueTomorrow}</div></div>
+        <div><div className="label-sm">Next 7 days</div><div className="num" style={{ fontSize: stat }}>{weekTotal.toLocaleString()}</div></div>
       </div>
-      <Bars data={data} height={158} segments={["mature", "young"]}
+      <Bars data={data} height={compact ? 128 : 158} segments={["mature", "young"]}
         colors={["var(--accent)", "color-mix(in oklab, var(--accent) 55%, var(--card2))"]}
         valueFmt={(v) => fmt.compact(Math.round(v))} labelEvery={5} />
       <Legend items={[{ c: "var(--accent)", label: "Mature" }, { c: "color-mix(in oklab, var(--accent) 55%, var(--card2))", label: "Young" }]} />
@@ -53,7 +55,7 @@ export function ForecastCard({ anki }) {
 }
 
 // ========================= ANSWER BUTTONS ==============================
-export function AnswerButtonsCard({ anki, range }) {
+export function AnswerButtonsCard({ anki, range, compact }) {
   const p = anki.period(range, "reviews");
   const sum = (k) => p.list.reduce((a, d) => a + d[k], 0);
   const again = sum("again"), hard = sum("hard"), good = sum("good"), easy = sum("easy");
@@ -71,19 +73,19 @@ export function AnswerButtonsCard({ anki, range }) {
         <div className="icon-title"><span style={{ color: "var(--accent)" }}><Icon name="gauge" size={17} /></span><h2>Answer Buttons</h2></div>
         <span className="label-sm">True retention {retention}%</span>
       </div>
-      <div style={{ display: "flex", height: 26, borderRadius: 7, overflow: "hidden", gap: 2 }}>
+      <div style={{ display: "flex", height: compact ? 22 : 26, borderRadius: 7, overflow: "hidden", gap: 2 }}>
         {segs.map((s) => (
           <div key={s.k} title={s.k + " " + s.v} style={{ width: s.v / total * 100 + "%", background: s.c, minWidth: s.v ? 2 : 0, transition: "width .5s" }} />
         ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginTop: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginTop: compact ? 12 : 16 }}>
         {segs.map((s) => (
           <div key={s.k}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 9, height: 9, borderRadius: 3, background: s.c }} />
               <span className="label" style={{ fontWeight: 700, color: "var(--text)" }}>{s.k}</span>
             </div>
-            <div className="num" style={{ fontSize: 19, marginTop: 4 }}>{Math.round(s.v / total * 100)}<span style={{ fontSize: 12, color: "var(--text2)" }}>%</span></div>
+            <div className="num" style={{ fontSize: compact ? 16 : 19, marginTop: 4 }}>{Math.round(s.v / total * 100)}<span style={{ fontSize: 12, color: "var(--text2)" }}>%</span></div>
             <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>{s.v.toLocaleString()}</div>
           </div>
         ))}
@@ -93,12 +95,12 @@ export function AnswerButtonsCard({ anki, range }) {
 }
 
 // ============================= HOURLY ==================================
-export function HourlyCard({ anki }) {
+export function HourlyCard({ anki, compact }) {
   const [ref, w] = useMeasure();
   const hours = anki.hourly;
   const peak = hours.reduce((a, h) => (h.pct > a.pct ? h : a), hours[0]);
   const max = Math.max(...hours.map((h) => h.pct)) || 1;
-  const H = 150, padB = 22, padT = 10;
+  const H = compact ? 118 : 150, padB = 22, padT = 10;
   const innerH = H - padB - padT;
   const W = Math.max(w, 60);
   const bw = W / 24 * 0.66;
@@ -137,7 +139,6 @@ export function HourlyCard({ anki }) {
 }
 
 // ============================== FSRS ===================================
-// recall heat scale: <70% red → 70–80% orange → 80–90% yellow → 90–95% green → >95% dark green
 const FSRS_BAR_COLORS = [
   "oklch(0.62 0.21 25)",
   "oklch(0.72 0.17 55)",
@@ -146,7 +147,7 @@ const FSRS_BAR_COLORS = [
   "oklch(0.5 0.11 150)",
 ];
 
-export function FsrsCard({ anki }) {
+export function FsrsCard({ anki, compact }) {
   const f = anki.fsrs;
   const fmt = anki.fmt;
   const retr = f.retr || [];
@@ -162,21 +163,21 @@ export function FsrsCard({ anki }) {
         <div className="icon-title"><span style={{ color: "var(--accent)" }}><Icon name="brain" size={17} /></span><h2>Memory Strength <span style={{ fontSize: 10, color: "var(--text3)", fontWeight: 700 }}>FSRS</span></h2></div>
         <span className="label-sm">{(f.mature || 0).toLocaleString()} mature</span>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 18 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: compact ? 8 : 10, marginBottom: compact ? 12 : 18 }}>
         {tiles.map((t) => (
-          <div key={t.label} style={{ background: "var(--card2)", borderRadius: "var(--r-sm)", padding: "12px 13px" }}>
-            <div style={{ color: "var(--accent)", marginBottom: 7 }}><Icon name={t.icon} size={17} /></div>
-            <div className="num" style={{ fontSize: 22 }}>{t.value}</div>
+          <div key={t.label} style={{ background: "var(--card2)", borderRadius: "var(--r-sm)", padding: compact ? "10px 11px" : "12px 13px" }}>
+            <div style={{ color: "var(--accent)", marginBottom: compact ? 5 : 7 }}><Icon name={t.icon} size={compact ? 15 : 17} /></div>
+            <div className="num" style={{ fontSize: compact ? 17 : 22 }}>{t.value}</div>
             <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, marginTop: 2 }}>{t.label}</div>
           </div>
         ))}
       </div>
-      <div className="label-sm" style={{ marginBottom: 10 }}>Cards by predicted recall</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div className="label-sm" style={{ marginBottom: compact ? 8 : 10 }}>Cards by predicted recall</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: compact ? 6 : 8 }}>
         {retr.map((r, i) => (
           <div key={r.band} style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ width: 56, fontSize: 12, color: "var(--text2)", fontWeight: 600, textAlign: "right" }}>{r.band}</span>
-            <div style={{ flex: 1, height: 14, background: "var(--card2)", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ flex: 1, height: compact ? 12 : 14, background: "var(--card2)", borderRadius: 4, overflow: "hidden" }}>
               <div style={{ width: r.n / maxR * 100 + "%", height: "100%", background: FSRS_BAR_COLORS[i % FSRS_BAR_COLORS.length], borderRadius: 4, transition: "width .6s" }} />
             </div>
             <span className="num" style={{ width: 48, fontSize: 13, textAlign: "right" }}>{fmt.compact(r.n)}</span>
@@ -188,7 +189,7 @@ export function FsrsCard({ anki }) {
 }
 
 // ========================= DECK LEADERBOARD ============================
-export function DeckBoardCard({ anki, range }) {
+export function DeckBoardCard({ anki, range, compact }) {
   const fmt = anki.fmt;
   const rows = anki.deckBoard(range);
   const max = Math.max(...rows.map((r) => r.cards), 1);
@@ -198,14 +199,14 @@ export function DeckBoardCard({ anki, range }) {
         <div className="icon-title"><span style={{ color: "var(--accent)" }}><Icon name="trophy" size={17} /></span><h2>Deck Leaderboard</h2></div>
         <span className="label-sm">{range === "week" ? "This week" : range === "month" ? "This month" : "This year"}</span>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: compact ? 10 : 14 }}>
         {rows.map((r, i) => (
           <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 13 }}>
             <span className="num" style={{ width: 18, color: "var(--text3)", fontSize: 14 }}>{i + 1}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                <span style={{ fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingRight: 10 }}>{r.name}</span>
-                <span className="num" style={{ fontSize: 14 }}>{r.cards.toLocaleString()} <span style={{ color: "var(--text3)", fontWeight: 600, fontSize: 12 }}>cards</span></span>
+                <span style={{ fontWeight: 700, fontSize: compact ? 13 : 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingRight: 10 }}>{r.name}</span>
+                <span className="num" style={{ fontSize: compact ? 13 : 14 }}>{r.cards.toLocaleString()} <span style={{ color: "var(--text3)", fontWeight: 600, fontSize: 12 }}>cards</span></span>
               </div>
               <div style={{ height: 8, background: "var(--card2)", borderRadius: 4, overflow: "hidden" }}>
                 <div style={{ width: r.cards / max * 100 + "%", height: "100%", background: DECK_COLORS[i % DECK_COLORS.length], borderRadius: 4, transition: "width .6s" }} />
@@ -224,17 +225,17 @@ export function DeckBoardCard({ anki, range }) {
 
 // =========================== RECORDS ===================================
 const RECORD_ICONS = ["bolt", "flame", "clock", "layers", "trophy", "target"];
-export function RecordsCard({ anki }) {
+export function RecordsCard({ anki, compact }) {
   return (
     <div className="card">
       <div className="card-h">
         <div className="icon-title"><span style={{ color: "var(--accent)" }}><Icon name="trophy" size={17} /></span><h2>Personal Records</h2></div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${compact ? 118 : 150}px, 1fr))`, gap: compact ? 8 : 10 }}>
         {anki.records.map((r, i) => (
-          <div key={r.label} style={{ background: "var(--card2)", borderRadius: "var(--r-sm)", padding: "13px 14px" }}>
-            <div style={{ color: "var(--accent)", marginBottom: 8 }}><Icon name={RECORD_ICONS[i % RECORD_ICONS.length]} size={17} /></div>
-            <div className="num" style={{ fontSize: 21, lineHeight: 1 }}>{r.value}{r.unit ? <span style={{ fontSize: 12, color: "var(--text2)", marginLeft: 4 }}>{r.unit}</span> : null}</div>
+          <div key={r.label} style={{ background: "var(--card2)", borderRadius: "var(--r-sm)", padding: compact ? "11px 12px" : "13px 14px" }}>
+            <div style={{ color: "var(--accent)", marginBottom: compact ? 6 : 8 }}><Icon name={RECORD_ICONS[i % RECORD_ICONS.length]} size={compact ? 15 : 17} /></div>
+            <div className="num" style={{ fontSize: compact ? 16 : 21, lineHeight: 1 }}>{r.value}{r.unit ? <span style={{ fontSize: 12, color: "var(--text2)", marginLeft: 4 }}>{r.unit}</span> : null}</div>
             <div className="label" style={{ fontWeight: 700, color: "var(--text)", marginTop: 5 }}>{r.label}</div>
             <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, marginTop: 1 }}>{r.sub}</div>
           </div>
@@ -245,33 +246,35 @@ export function RecordsCard({ anki }) {
 }
 
 // ========================= ACHIEVEMENTS ================================
-export function AchievementsCard({ anki }) {
+export function AchievementsCard({ anki, compact }) {
   const list = anki.achievements;
   const got = list.filter((a) => a.got).length;
+  const circle = compact ? 50 : 64;
+  const glyph = compact ? 20 : 26;
   return (
     <div className="card">
       <div className="card-h">
         <div className="icon-title"><span style={{ color: "var(--accent)" }}><Icon name="star" size={17} /></span><h2>Achievements</h2></div>
         <span className="label-sm">{got} / {list.length} unlocked</span>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(108px,1fr))", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill,minmax(${compact ? 84 : 108}px,1fr))`, gap: compact ? 9 : 12 }}>
         {list.map((a) => (
           <div key={a.name} style={{ textAlign: "center", opacity: a.got ? 1 : 0.92 }}>
-            <div style={{ position: "relative", width: 64, height: 64, margin: "0 auto 8px" }}>
+            <div style={{ position: "relative", width: circle, height: circle, margin: compact ? "0 auto 6px" : "0 auto 8px" }}>
               {a.got ? (
                 <div style={{
-                  width: 64, height: 64, borderRadius: "50%", display: "grid", placeItems: "center",
+                  width: circle, height: circle, borderRadius: "50%", display: "grid", placeItems: "center",
                   background: "color-mix(in oklab, var(--accent) 20%, var(--card2))", border: "2px solid var(--accent)", color: "#fff",
                 }}>
-                  <Icon name={a.icon} size={26} sw={1.8} />
+                  <Icon name={a.icon} size={glyph} sw={1.8} />
                 </div>
               ) : (
-                <Ring value={a.progress || 0} max={1} size={64} stroke={5} color="var(--text3)">
-                  <span style={{ color: "#fff" }}><Icon name="lock" size={20} /></span>
+                <Ring value={a.progress || 0} max={1} size={circle} stroke={5} color="var(--text3)">
+                  <span style={{ color: "#fff" }}><Icon name="lock" size={compact ? 16 : 20} /></span>
                 </Ring>
               )}
             </div>
-            <div style={{ fontWeight: 700, fontSize: 12.5, color: a.got ? "var(--text)" : "var(--text2)" }}>{a.name}</div>
+            <div style={{ fontWeight: 700, fontSize: compact ? 11.5 : 12.5, color: a.got ? "var(--text)" : "var(--text2)" }}>{a.name}</div>
             <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, lineHeight: 1.25, marginTop: 2 }}>
               {a.got ? a.desc : Math.round((a.progress || 0) * 100) + "% · " + a.desc}
             </div>

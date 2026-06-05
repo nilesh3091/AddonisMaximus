@@ -3,6 +3,7 @@ the web base path, the real-data builder (cached), and the JS bootstrap blob."""
 from __future__ import annotations
 
 import json
+import os
 
 from aqt import mw
 
@@ -17,6 +18,19 @@ _cache = {"key": None, "raw": None}
 
 def web_base() -> str:
     return f"/_addons/{mw.addonManager.addonFromModule(__name__)}/web"
+
+
+def bundle_version() -> int:
+    """mtime of the built bundle — used as a ?v= cache-buster so the webview
+    never serves a stale recall.js after a rebuild/update."""
+    try:
+        return int(os.path.getmtime(os.path.join(os.path.dirname(__file__), "web", "recall.js")))
+    except Exception:
+        return 0
+
+
+def script_url() -> str:
+    return f"{web_base()}/recall.js?v={bundle_version()}"
 
 
 def _cache_key(cfg):

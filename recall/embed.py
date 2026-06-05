@@ -44,7 +44,7 @@ def _on_will_render(deck_browser, content) -> None:
         content.stats += (
             '<div id="recall-embed"></div>'
             f"<script>window.__RECALL__ = {boot};{reporter}</script>"
-            f"<script src=\"{base}/recall.js\" onerror=\"try{{pycmd('recall:log:script-load-failed')}}catch(e){{}}\"></script>"
+            f"<script src=\"{core.script_url()}\" onerror=\"try{{pycmd('recall:log:script-load-failed')}}catch(e){{}}\"></script>"
         )
         _log(f"will_render fired; web_base={base}; bootstrap_bytes={len(boot)}")
     except Exception as e:
