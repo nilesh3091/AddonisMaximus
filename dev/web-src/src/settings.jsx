@@ -13,6 +13,14 @@ const THEMES = [
   { value: "daylight", label: "Daylight (light)" },
 ];
 
+// Multiplies the carousel zoom — scales text, rings, charts and spacing together.
+const TEXT_SIZES = [
+  { value: 0.85, label: "Small" },
+  { value: 1, label: "Default" },
+  { value: 1.2, label: "Large" },
+  { value: 1.4, label: "Extra large" },
+];
+
 const ICON_FOR_SOURCE = { total: "layers", reviews: "repeat", newC: "plus", time: "clock", daysStudied: "check" };
 
 function Seg({ value, options, onChange }) {
@@ -32,8 +40,19 @@ function Switch({ on, onChange, label }) {
   );
 }
 
-function SectionHead({ children }) {
-  return <div className="set-sect-h">{children}</div>;
+// Collapsible settings section. Collapsed by default so the drawer opens as a
+// short, scannable list of headers; the user expands only what they need.
+function Section({ title, defaultOpen = false, children }) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  return (
+    <div className={"set-sect" + (open ? " open" : "")}>
+      <button className="set-sect-h" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span className="set-sect-title">{title}</span>
+        <span className="set-sect-caret"><Icon name="chevronDown" size={16} /></span>
+      </button>
+      {open && <div className="set-sect-body">{children}</div>}
+    </div>
+  );
 }
 
 export function SettingsDrawer({ config, setConfig, anki, onClose }) {
@@ -78,11 +97,15 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
   };
   const addGoal = () => {
     const key = "goal_" + Date.now().toString(36);
-    setGoals([...config.goals, { key, label: "New goal", icon: "layers", source: "total", unit: "count", weeklyTarget: 100 }]);
+    setGoals([...config.goals, { key, label: "New goal", icon: "layers", source: "total", unit: "count", targetMode: "average", weeklyTarget: 100 }]);
   };
   const removeGoal = (i) => setGoals(config.goals.filter((_, k) => k !== i));
 
   const visibleCount = order.length - hidden.size;
+  const visibleOrder = order.filter((k) => !hidden.has(k));
+  // The carousel's "opens on" card; fall back to the first visible card if the
+  // chosen one was hidden or is unknown.
+  const defaultCardVal = visibleOrder.includes(config.sections.defaultCard) ? config.sections.defaultCard : visibleOrder[0];
   const decks = anki.decks || [];
   const includeDecks = new Set(config.data.includeDecks || []);
   const toggleDeck = (name) => {
@@ -102,12 +125,20 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
         <div className="drawer-body">
 
           {/* ---------------- Appearance ---------------- */}
-          <div className="set-sect">
-            <SectionHead>Appearance</SectionHead>
+          <Section title="Appearance">
             <div className="set-row">
               <div><div className="set-label">Theme</div></div>
               <select className="field" value={config.appearance.theme} onChange={(e) => setAppearance("theme", e.target.value)}>
                 {THEMES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <div className="set-row">
+              <div>
+                <div className="set-label">Text size</div>
+                <div className="set-desc">Scales the whole panel up or down</div>
+              </div>
+              <select className="field" value={String(config.appearance.textScale ?? 1)} onChange={(e) => setAppearance("textScale", Number(e.target.value))}>
+                {TEXT_SIZES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
             <div className="set-row">
@@ -118,12 +149,23 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
               <div><div className="set-label">Corners</div></div>
               <Seg value={config.appearance.corners} options={[{ value: "round", label: "Round" }, { value: "sharp", label: "Sharp" }]} onChange={(v) => setAppearance("corners", v)} />
             </div>
-          </div>
+          </Section>
 
           {/* ---------------- Sections ---------------- */}
-          <div className="set-sect">
-            <SectionHead>Cards &amp; sections · {visibleCount} shown</SectionHead>
+          <Section title={`Cards & sections · ${visibleCount} shown`}>
             <div className="set-desc" style={{ marginBottom: 8 }}>Toggle which cards appear, and reorder them. Hidden cards are removed from the panel.</div>
+            {visibleOrder.length > 1 && (
+              <div className="set-row" style={{ marginBottom: 4 }}>
+                <div>
+                  <div className="set-label">Default card</div>
+                  <div className="set-desc">Which card the carousel opens on</div>
+                </div>
+                <select className="field" value={defaultCardVal}
+                  onChange={(e) => setSections({ ...config.sections, defaultCard: e.target.value })}>
+                  {visibleOrder.map((k) => <option key={k} value={k}>{meta[k] ? meta[k].label : k}</option>)}
+                </select>
+              </div>
+            )}
             {order.map((key, idx) => {
               const m = meta[key];
               if (!m) return null;
@@ -140,23 +182,22 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
                 </div>
               );
             })}
-          </div>
+          </Section>
 
           {/* ---------------- Goals ---------------- */}
-          <div className="set-sect">
-            <SectionHead>Goals</SectionHead>
-            <div className="set-desc" style={{ marginBottom: 10 }}>Weekly targets — monthly and yearly scale automatically.</div>
+          <Section title="Goals">
+            <div className="set-desc" style={{ marginBottom: 10 }}>Pick <b>Average</b> to target your recent pace, or <b>Custom</b> for a set number. Targets scale across week, month and year automatically.</div>
             {config.goals.map((g, i) => (
-              <GoalEditor key={g.key} g={g} onLabel={(v) => updateGoal(i, { label: v })}
+              <GoalEditor key={g.key} g={g} anki={anki} onLabel={(v) => updateGoal(i, { label: v })}
                 onSource={(v) => changeSource(i, v)} onTarget={(v) => updateGoal(i, { weeklyTarget: v })}
+                onMode={(v) => updateGoal(i, { targetMode: v })}
                 onDelete={() => removeGoal(i)} />
             ))}
             <button className="btn-add" onClick={addGoal}><Icon name="plus" size={16} /> Add a goal</button>
-          </div>
+          </Section>
 
           {/* ---------------- Data & collection ---------------- */}
-          <div className="set-sect">
-            <SectionHead>Data &amp; collection</SectionHead>
+          <Section title="Data & collection">
             <div className="set-row">
               <div className="set-label-wrap">
                 <div>
@@ -204,7 +245,7 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
                 ))}
               </div>
             )}
-          </div>
+          </Section>
 
         </div>
       </div>
@@ -212,11 +253,15 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
   );
 }
 
-function GoalEditor({ g, onLabel, onSource, onTarget, onDelete }) {
+function GoalEditor({ g, anki, onLabel, onSource, onTarget, onMode, onDelete }) {
   const isTime = g.unit === "time";
+  const mode = g.targetMode || "average";
   // Time targets are stored in seconds; edit in hours.
   const shown = isTime ? Math.round((g.weeklyTarget / 3600) * 10) / 10 : g.weeklyTarget;
   const onShown = (v) => onTarget(isTime ? Math.round(v * 3600) : Math.round(v));
+  // Live preview of the user's recent weekly average for this source.
+  const avg = anki && anki.avgWeekly ? anki.avgWeekly(g.source) : 0;
+  const avgShown = isTime ? anki.fmt.fmtDurShort(Math.round(avg)) : Math.round(avg).toLocaleString();
   return (
     <div className="goal-edit">
       <div className="goal-edit-top">
@@ -229,12 +274,26 @@ function GoalEditor({ g, onLabel, onSource, onTarget, onDelete }) {
         <select className="field" value={g.source} onChange={(e) => onSource(e.target.value)} style={{ minWidth: 150 }}>
           {GOAL_SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
-        <span className="gl">Weekly target</span>
-        <div className="time-target">
-          <input className="field num-field" type="number" min={isTime ? 0.5 : 1} step={isTime ? 0.5 : 1} value={shown}
-            onChange={(e) => onShown(Math.max(0, Number(e.target.value) || 0))} />
-          <span className="tt-unit">{isTime ? "h / wk" : "/ wk"}</span>
-        </div>
+        <span className="gl">Target</span>
+        <Seg value={mode} options={[{ value: "average", label: "Average" }, { value: "fixed", label: "Custom" }]} onChange={onMode} />
+        {mode === "fixed" ? (
+          <>
+            <span className="gl">Weekly target</span>
+            <div className="time-target">
+              <input className="field num-field" type="number" min={isTime ? 0.5 : 1} step={isTime ? 0.5 : 1} value={shown}
+                onChange={(e) => onShown(Math.max(0, Number(e.target.value) || 0))} />
+              <span className="tt-unit">{isTime ? "h / wk" : "/ wk"}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="gl">Your average</span>
+            <div className="time-target" title="Your recent weekly pace — updates as you study">
+              <span className="num" style={{ fontSize: 14 }}>{avgShown}</span>
+              <span className="tt-unit">/ wk</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

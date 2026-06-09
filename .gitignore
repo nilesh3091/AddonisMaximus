@@ -1,5 +1,5 @@
 # dev deps for the web layer
-web-src/node_modules/
+dev/web-src/node_modules/
 
 # python
 __pycache__/

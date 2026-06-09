@@ -21,7 +21,11 @@ function RangeToggle({ value, onChange }) {
 
 export function App() {
   const { config, setConfig, anki } = useRecallState();
-  const [range, setRange] = React.useState("week");
+  // Range toggle persists via config.ui.range (shared with the carousel). Clamp
+  // to this view's options — the window has no "Day".
+  const stored = (config.ui && config.ui.range) || "week";
+  const range = ["week", "month", "year"].includes(stored) ? stored : "week";
+  const setRange = (r) => setConfig({ ...config, ui: { ...config.ui, range: r } });
   const [settingsOpen, setSettingsOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -31,7 +35,7 @@ export function App() {
   }, [config.appearance]);
 
   const openSettings = () => setSettingsOpen(true);
-  const ctx = { anki, range, chartType: config.appearance.chart, onAddGoal: openSettings };
+  const ctx = { anki, range, chartType: config.appearance.chart, onAddGoal: openSettings, streakBox: 15 };
   const visible = visibleSections(config);
 
   return (

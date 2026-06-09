@@ -168,6 +168,11 @@ body, :host {
 }
 .range-toggle button:hover { color: var(--text); }
 .range-toggle button.active { color: var(--accent-ink); background: var(--accent); }
+/* greyed-out (not hidden) on cards whose contents don't change with the range */
+.range-toggle.disabled { opacity: .5; }
+.range-toggle.disabled button { cursor: not-allowed; color: var(--text3); }
+.range-toggle.disabled button:hover { color: var(--text3); }
+.range-toggle.disabled button.active { color: var(--text2); background: var(--ring-track); }
 
 /* grid — single narrow column in the window panel */
 .grid { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
@@ -237,9 +242,35 @@ body, :host {
 .embed-bar .ebrand { display: flex; align-items: center; gap: 8px; font-family: var(--font-num); font-weight: 800; font-size: 15px; letter-spacing: -0.02em; }
 .embed-bar .ebrand .mark { width: 20px; height: 20px; border-radius: 6px; background: var(--accent); display: grid; place-items: center; color: var(--accent-ink); }
 .embed-bar .spacer { flex: 1; }
-/* one knob to size the whole carousel down to the heatmap's weight */
-.embed-inner { zoom: 0.82; }
-.embed-stage { position: relative; touch-action: pan-y; }
+.embed-bar .streak-pill {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  background: var(--card); border: 1px solid var(--border); border-radius: 999px;
+  padding: 4px 11px 4px 8px; font-size: 12.5px; font-weight: 700; color: var(--text);
+  font-family: var(--font-num);
+}
+.embed-bar .streak-pill .flame { color: var(--accent); display: inline-flex; }
+/* one knob to size the whole carousel down to the heatmap's weight.
+   --embed-zoom = base 0.656 × the user's Text size multiplier (set on the host
+   in embed.jsx), so bumping text size scales fonts, rings, charts and spacing
+   together. */
+.embed-inner { zoom: var(--embed-zoom, 0.656); }
+/* Fixed carousel height: every card occupies the SAME vertical space, so flipping
+   between cards never resizes the host or shoves the page below up/down. Each card
+   stretches to fill (height:100%) and distributes its own content — sparse cards
+   centre, chart cards let the chart flex — so no view is ever left with dead space.
+   --embed-stage-h is set per density on the host (compact 320 / full 412). */
+.embed-stage { position: relative; touch-action: pan-y; height: var(--embed-stage-h, 320px); }
+.embed-stage > .fade { height: 100%; }
+.embed .card { height: 100%; overflow: hidden; }
+/* body region that absorbs slack so content fills the stable card height */
+.card-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.card-body.center { justify-content: center; }
+.card-body.spread { justify-content: space-between; }
+/* a chart that grows to fill whatever height remains in the card */
+.chart-fill { flex: 1 1 auto; min-height: 60px; display: flex; }
+.chart-fill > * { flex: 1 1 auto; min-width: 0; }
+/* blend cards flush into Anki's page — no panel box, continuous with the heatmap */
+.embed.blend .card { background: transparent; border-color: transparent; box-shadow: none; padding-left: 0; padding-right: 0; }
 /* the full-width "See more" CTA is redundant in the carousel — open the window instead */
 .embed .btn-wide { display: none; }
 .embed-nav { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 12px; }
@@ -267,8 +298,8 @@ body, :host {
 .embed .card-h .act { font-size: 12px; }
 .embed .stat-row { gap: 20px; margin: 12px 0 4px; }
 .embed .stat .label-sm { margin-bottom: 3px; }
-.embed .stat .big { font-size: 21px; }
-.embed .stat .big .u { font-size: 12px; }
+.embed .stat .big { font-size: 17px; font-weight: 600; }
+.embed .stat .big .u { font-size: 11px; font-weight: 600; }
 .embed .tabs { gap: 6px; }
 .embed .tab { padding: 6px 11px; font-size: 12px; }
 .embed .tab .ti svg { width: 13px; height: 13px; }
@@ -297,12 +328,22 @@ body, :host {
 .drawer-h h2 .gi { color: var(--accent); display: inline-flex; }
 .drawer-body { flex: 1; overflow-y: auto; padding: 8px 18px 28px; }
 
-.set-sect { margin-top: 22px; }
-.set-sect:first-child { margin-top: 8px; }
+.set-sect { margin-top: 12px; }
+.set-sect:first-child { margin-top: 4px; }
+/* Collapsible header — a full-width button row with a rotating caret. */
 .set-sect > .set-sect-h {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: transparent; border: 0; cursor: pointer; text-align: left;
+  padding: 11px 2px; margin: 0; border-bottom: 1px solid var(--border);
   font-family: var(--font-num); font-weight: 700; font-size: 11.5px; text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--text3); margin: 0 0 10px;
+  letter-spacing: 0.06em; color: var(--text3); transition: color .12s;
 }
+.set-sect > .set-sect-h:hover { color: var(--text); }
+.set-sect.open > .set-sect-h { color: var(--text2); border-bottom-color: transparent; }
+.set-sect .set-sect-caret { display: inline-flex; color: var(--text3); transition: transform .2s ease; }
+.set-sect.open .set-sect-caret { transform: rotate(180deg); }
+.set-sect-body { padding: 4px 2px 6px; animation: setReveal .18s ease both; }
+@keyframes setReveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 .set-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 9px 0; border-bottom: 1px solid var(--border);

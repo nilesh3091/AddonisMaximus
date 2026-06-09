@@ -72,6 +72,10 @@ export function buildAnki(raw, config) {
   }
 
   function rangeList(range) {
+    if (range === "day") {
+      // just today's record(s) — used by Goals' "Day" period (carousel only)
+      return days.filter((d) => d.date.getTime() === TODAY.getTime());
+    }
     if (range === "week") {
       const ws = startOfWeek(TODAY);
       return days.filter((d) => d.date >= ws);
@@ -153,6 +157,17 @@ export function buildAnki(raw, config) {
     return rows;
   }
 
+  // "You vs You" — your biggest study days, ranked by cards cleared (time breaks
+  // ties). All-time within the loaded window (same span the Records card uses).
+  function topDays(n = 5) {
+    return days
+      .filter((d) => d.studied)
+      .slice()
+      .sort((a, b) => b.total - a.total || b.timeSec - a.timeSec)
+      .slice(0, n)
+      .map((d) => ({ date: d.date, total: d.total, timeSec: d.timeSec, retention: d.retention }));
+  }
+
   // ---- streak ----------------------------------------------------------
   const streakMin = (config && config.data && config.data.streakMinCards) || 1;
   function computeStreakDays() {
@@ -173,15 +188,44 @@ export function buildAnki(raw, config) {
   const matureCount = (raw.fsrs && raw.fsrs.mature) || (days.length ? days[days.length - 1].mature : 0);
 
   // ---- goals (config-driven) ------------------------------------------
-  const RANGE_MULT = { week: 1, month: 4.3, year: 52 };
+  // "day" scales from the weekly base by 1/7, exactly how month/year scale up.
+  const RANGE_MULT = { day: 1 / 7, week: 1, month: 4.3, year: 52 };
+
+  // Source value for an arbitrary day-list, matching periodTotals' semantics
+  // (time -> seconds, daysStudied -> count of studied days, else metric sum).
+  function sumSource(list, source) {
+    if (source === "time") return sumDays(list, "timeSec");
+    if (source === "daysStudied") return list.filter((d) => d.studied).length;
+    return sumDays(list, source);
+  }
+
+  // Average weekly value of a goal source over the user's recent history. Uses up
+  // to the last 12 complete weeks (excludes the current partial week so a slow
+  // start to this week doesn't drag the target down). This is the "average" goal
+  // target — it scales to day/month/year via RANGE_MULT just like a fixed one.
+  function avgWeekly(source) {
+    const thisWeekStart = startOfWeek(TODAY);
+    const windowStart = new Date(thisWeekStart.getTime() - 12 * 7 * DAY);
+    let list = days.filter((d) => d.date >= windowStart && d.date < thisWeekStart);
+    if (!list.length) list = days.filter((d) => d.date < thisWeekStart);
+    if (!list.length) return 0;
+    const weeks = Math.max(1, (thisWeekStart.getTime() - list[0].date.getTime()) / (7 * DAY));
+    return sumSource(list, source) / weeks;
+  }
+
   function goals(range) {
     const tot = periodTotals(range);
-    const mult = RANGE_MULT[range];
+    const mult = RANGE_MULT[range] != null ? RANGE_MULT[range] : 1;
     const list = (config && config.goals) || [];
     return list.map((g) => {
       const value = tot[g.source] != null ? tot[g.source] : 0;
-      const target = Math.max(1, Math.round((g.weeklyTarget || 0) * mult));
-      return { key: g.key, label: g.label, value, target, unit: g.unit, icon: g.icon };
+      const mode = g.targetMode || "average";
+      // average mode falls back to the configured number when there's no history
+      const weeklyBase = mode === "average"
+        ? (avgWeekly(g.source) || g.weeklyTarget || 0)
+        : (g.weeklyTarget || 0);
+      const target = Math.max(1, Math.round(weeklyBase * mult));
+      return { key: g.key, label: g.label, value, target, unit: g.unit, icon: g.icon, targetMode: mode };
     });
   }
 
@@ -190,7 +234,7 @@ export function buildAnki(raw, config) {
     hourly: raw.hourly || [], forecast: raw.forecast || [], fsrs: raw.fsrs || {},
     records: raw.records || [], achievements: raw.achievements || [],
     streakDays, totalSessions, matureCount, lifetimeCards,
-    startOfWeek, trend, period, periodTotals, deckBoard, goals,
+    startOfWeek, trend, period, periodTotals, deckBoard, topDays, goals, avgWeekly,
     fmt,
   };
 }

@@ -1,25 +1,25 @@
 # Recall — Anki Progress · project guide
 
-Strava-style study-progress add-on for **Anki 25.09** (Qt6). One React bundle, two surfaces:
-- **Home-screen carousel** ("embed") — injected below the deck-browser heatmap; shows ONE card at a time, navigated by arrows / dots / swipe.
-- **Window** — Tools → Recall — Progress (or top-toolbar "Progress"); full scrolling dashboard.
+Strava-style study-progress add-on for **Anki 25.09** (Qt6). One React bundle. The only surface is the **home-screen carousel** ("embed") — injected below the deck-browser heatmap; shows ONE card at a time, navigated by arrows / dots / swipe.
+
+The full-dashboard **window** (`dialog.py`) still exists in code but is **not launched** — its Tools-menu item and top-toolbar "Progress" link were removed. It can still be previewed offline (see below) or re-wired to an entry point later.
 
 The add-on is **symlinked** into `~/Library/Application Support/Anki2/addons21/recall`, so editing this folder + restarting Anki is the live loop.
 
 ---
 
 ## ⚠️ Build & reload loop — READ FIRST
-The UI is React/JSX in `web-src/src/`, compiled by **esbuild** into `recall/web/recall.js` (CSS + everything bundled into that one file). **Editing `web-src/src/*` has NO effect until you rebuild.**
+The UI is React/JSX in `dev/web-src/src/`, compiled by **esbuild** into `recall/web/recall.js` (CSS + everything bundled into that one file). **Editing `dev/web-src/src/*` has NO effect until you rebuild.**
 
 ```bash
-cd web-src
+cd dev/web-src
 npm install      # once
-npm run build    # compile  -> ../recall/web/recall.js
+npm run build    # compile  -> ../../recall/web/recall.js
 npm run watch    # auto-rebuild on every save (use while iterating)
 ```
 Then **restart Anki**. Cache-busting is built in (`core.script_url()` appends `?v=<bundle mtime>`), so the fresh bundle always loads — no stale-cache surprises.
 
-**Preview without Anki** (fast iteration): `node web-src/server.mjs` then open
+**Preview without Anki** (fast iteration): `node dev/web-src/server.mjs` then open
 - `http://localhost:8123/?embed=1` → the carousel
 - `http://localhost:8123/` → the window
 Uses sample data + localStorage; no real collection needed.
@@ -29,8 +29,9 @@ Never hand-edit `recall/web/recall.js` — it's generated.
 ---
 
 ## 🎚️ Where to change the look / size (the usual ask)
-All in `web-src/src/` (rebuild after editing):
-- **Master carousel size:** `styles.css` → `.embed-inner { zoom: 0.82 }`. Higher = bigger, lower = smaller. **Start here.**
+All in `dev/web-src/src/` (rebuild after editing):
+- **Master carousel size:** `styles.css` → `.embed-inner { zoom: var(--embed-zoom, 0.656) }`. The `0.656` base is the default; change it to re-baseline everyone. Higher = bigger, lower = smaller. **Start here.**
+- **User-facing size control:** Settings → Appearance → **Text size** (`appearance.textScale`, default 1). `embed.jsx` sets `--embed-zoom = 0.656 × textScale` on the host, so it scales fonts, rings, charts and spacing together. Presets live in `TEXT_SIZES` (`settings.jsx`); keep `textScale` in `config.js` **and** `config_store.py` defaults in sync.
 - **Carousel width:** `styles.css` → `.embed { max-width: 680px }`.
 - **Per-card element sizes:** the `compact` prop drives smaller rings/numbers/charts. Ternaries live in `cards-core.jsx` (Goals rings & numbers, Activity chart height, Streak calendar cells) and `cards-extra.jsx` (Forecast/Hourly/FSRS/DeckBoard/Records/Achievements). `compact` is `true` only in the carousel, `false` in the window.
 - **Compact class-based sizes** (padding, titles, labels, tabs, top bar): the `.embed …` block near the bottom of `styles.css`.
@@ -42,18 +43,20 @@ Cards are **natural height** (no fixed-height scaler → nothing clips). If a ca
 
 ## File map
 ```
-recall/                  THE ADD-ON (symlinked into addons21/recall)
-  __init__.py            Tools menu + toolbar 'Progress' + web exports + embed hooks
+recall/                  THE ADD-ON (symlinked into addons21/recall) — ZIP ITS CONTENTS TO PUBLISH
+  __init__.py            web exports + embed.register()  (carousel only — no menu/toolbar)
   core.py                web_base/script_url (cache-bust), cached real-data builder,
                          bootstrap JSON, USE_REAL_DATA flag
   embed.py               home-screen carousel: deck-browser injection + pycmd bridge
                          + debug log (writes recall/recall.log)
-  dialog.py              window mode: AnkiWebView host + pycmd bridge
+  dialog.py              window mode (retained, NOT launched): AnkiWebView host + bridge
   config_store.py        settings defaults / load / save  (MIRROR of config.js)
   data.py                real collection queries (revlog / FSRS / decks) -> raw dataset
-  web/recall.js          BUILT bundle (committed) · web/fonts/ · web/index.html (dev)
+  web/recall.js          BUILT bundle (committed) · web/fonts/ · web/index.html (dev only)
   manifest.json · config.json · config.md
-web-src/                 dev source — does NOT ship
+  meta.json              ⚠ Anki-generated user config — git-ignored, NEVER upload
+dev/                     NOT shipped — nothing under dev/ goes in the upload zip
+  web-src/               dev source for the web layer (esbuild -> recall/web/recall.js)
   src/main.jsx           entry: picks window vs embed, mounts (embed = Shadow DOM)
   src/app.jsx            window dashboard      src/embed.jsx   carousel
   src/cardmap.jsx        key -> card renderer  src/cards-core.jsx / cards-extra.jsx
@@ -61,7 +64,9 @@ web-src/                 dev source — does NOT ship
   src/data.js            sample data + buildAnki() aggregation
   src/config.js          config load/save + appMode/webBase   src/useRecall.jsx  shared state
   src/icons.jsx · src/styles.css
-  build.mjs · server.mjs · test_data.py · package.json
+  web-src/build.mjs · web-src/server.mjs · web-src/test_data.py · web-src/package.json
+  design_handoff_anki_progress/   original design artifacts (reference only)
+  README.md              project readme
 ```
 
 ## Data
@@ -70,7 +75,7 @@ web-src/                 dev source — does NOT ship
 - Aggregation (trend / period / goals / streak / deckBoard) is in **JS** `buildAnki()` (`data.js`), run on the injected `raw`.
 - **FSRS** (most sensitive — validate against a real collection): stability/difficulty from `cards.data` JSON (`$.s`/`$.d`), retrievability via forgetting curve with decay −0.5.
 - Streak counts back from today; a not-yet-studied today does NOT reset it.
-- Offline logic test (no Anki): `python3 web-src/test_data.py` — `data.py` has no `aqt` imports, so a fake collection drives it.
+- Offline logic test (no Anki): `python3 dev/web-src/test_data.py` — `data.py` has no `aqt` imports, so a fake collection drives it.
 
 ## Settings (gear icon)
 Web drawer (`settings.jsx`) → `pycmd("recall:save:<json>")` → `config_store.py` (Anki `config.json`). Controls: section show/hide + order, goals (targets + custom goals), appearance (theme/chart/corners), data (decks / cutoff hour / mature threshold / streak min).
@@ -79,6 +84,11 @@ Web drawer (`settings.jsx`) → `pycmd("recall:save:<json>")` → `config_store.
 ## JS ↔ Python bridge
 pycmd messages: `recall:save:<json>`, `recall:reload`, `recall:log:<msg>` (debug).
 Window → `dialog.set_bridge_command`. Carousel → `gui_hooks.webview_did_receive_js_message` (`embed.py`).
+
+## Publishing to AnkiWeb
+The upload package = **the contents of `recall/`**. Zip the files *inside* `recall/` (so `__init__.py` sits at the zip root — do NOT zip the `recall` folder itself), then upload at ankiweb.net → *Share* → *Upload*. Everything else lives in `dev/` and must not ship.
+- **Include:** `__init__.py`, `core.py`, `embed.py`, `dialog.py`, `config_store.py`, `data.py`, `manifest.json`, `config.json`, `config.md`, `web/recall.js`, `web/fonts/*.woff2`. (`web/index.html` is dev-only — harmless, optional to drop.)
+- **Exclude** (Anki-generated / runtime, all git-ignored): `meta.json`, `recall.log`, `__pycache__/`. These reappear whenever Anki runs through the symlink, so re-check right before zipping.
 
 ## Pending / TODO
 - [ ] Dial in carousel size to taste (`zoom` knob above) — or add a density control in Settings.

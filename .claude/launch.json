@@ -4,7 +4,7 @@
     {
       "name": "recall-web",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["web-src/server.mjs"],
+      "runtimeArgs": ["dev/web-src/server.mjs"],
       "port": 8123
     }
   ]

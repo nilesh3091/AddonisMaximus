@@ -21,6 +21,7 @@ export const SECTIONS = [
   { key: "hourly", label: "When you study best", icon: "clock" },
   { key: "fsrs", label: "Memory strength (FSRS)", icon: "brain" },
   { key: "deckBoard", label: "Deck leaderboard", icon: "trophy" },
+  { key: "bestDays", label: "You vs You (best days)", icon: "bolt" },
   { key: "records", label: "Personal records", icon: "crown" },
   { key: "achievements", label: "Achievements", icon: "star" },
 ];
@@ -35,16 +36,24 @@ export const GOAL_SOURCES = [
 
 export const DEFAULT_CONFIG = {
   version: 1,
-  appearance: { theme: "strava", chart: "area", corners: "round" },
+  // textScale multiplies the carousel zoom (1 = default size). The Text size
+  // control in Settings sets it; everything scales proportionally.
+  appearance: { theme: "strava", chart: "area", corners: "round", textScale: 1 },
   sections: {
     order: SECTIONS.map((s) => s.key),
     hidden: [],
+    // Which card the home-screen carousel opens on (a section key). Falls back to
+    // the first visible card if this one is hidden/unknown. Carousel-only.
+    defaultCard: "activity",
   },
+  // targetMode: "average" = target tracks the user's recent weekly average for the
+  // source; "fixed" = use weeklyTarget. weeklyTarget is kept as the fallback/Custom
+  // value. Targets scale to day/week/month/year automatically.
   goals: [
-    { key: "cards", label: "Cards", icon: "layers", source: "total", unit: "count", weeklyTarget: 1200 },
-    { key: "time", label: "Study Time", icon: "clock", source: "time", unit: "time", weeklyTarget: 25200 },
-    { key: "new", label: "New Cards", icon: "plus", source: "newC", unit: "count", weeklyTarget: 120 },
-    { key: "days", label: "Days Studied", icon: "check", source: "daysStudied", unit: "days", weeklyTarget: 7 },
+    { key: "cards", label: "Cards", icon: "layers", source: "total", unit: "count", targetMode: "average", weeklyTarget: 1200 },
+    { key: "time", label: "Study Time", icon: "clock", source: "time", unit: "time", targetMode: "average", weeklyTarget: 25200 },
+    { key: "new", label: "New Cards", icon: "plus", source: "newC", unit: "count", targetMode: "average", weeklyTarget: 120 },
+    { key: "days", label: "Days Studied", icon: "check", source: "daysStudied", unit: "days", targetMode: "average", weeklyTarget: 7 },
   ],
   data: {
     includeDecks: [],          // [] = all decks
@@ -52,6 +61,11 @@ export const DEFAULT_CONFIG = {
     matureThresholdDays: 21,
     streakMinCards: 1,
   },
+  // Remembered view state (not a user-facing setting): the Week/Month/Year — and
+  // Day, on Goals — time-range toggle. Persisted so returning from study, which
+  // re-mounts the carousel, keeps the range the user last picked instead of
+  // snapping back to "week". MUST stay in sync with config_store.py.
+  ui: { range: "week" },
 };
 
 // ---- deep merge (objects only; arrays replace) --------------------------

@@ -15,6 +15,24 @@ export function useMeasure() {
   return [ref, w];
 }
 
+// Measure both width AND height — lets a chart fill a flex parent's box so a card
+// occupies the same stable height whether or not it owns a tall chart (carousel).
+export function useBox() {
+  const ref = React.useRef(null);
+  const [box, setBox] = React.useState({ w: 0, h: 0 });
+  React.useLayoutEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver((es) => {
+      const r = es[0].contentRect; setBox({ w: r.width, h: r.height });
+    });
+    ro.observe(ref.current);
+    const r = ref.current.getBoundingClientRect();
+    setBox({ w: r.width, h: r.height });
+    return () => ro.disconnect();
+  }, []);
+  return [ref, box.w, box.h];
+}
+
 // ---- circular progress ring -------------------------------------------
 export function Ring({ value, max, size = 96, stroke = 9, color = "var(--accent)", children, delay = 0 }) {
   const r = (size - stroke) / 2;
@@ -67,8 +85,9 @@ function axisLabels(data, range) {
 }
 
 // ---- main trend chart --------------------------------------------------
-export function TrendChart({ data, height = 190, type = "area", range = "week", valueFmt = (v) => v, accent = "var(--accent)" }) {
-  const [ref, w] = useMeasure();
+export function TrendChart({ data, height: heightProp = 190, fill = false, type = "area", range = "week", valueFmt = (v) => v, accent = "var(--accent)" }) {
+  const [ref, w, boxH] = useBox();
+  const height = fill && boxH > 24 ? boxH : heightProp;
   const [hover, setHover] = React.useState(null);
   const padL = 6, padR = 46, padT = 16, padB = 26;
   const W = Math.max(w, 60);
@@ -88,22 +107,20 @@ export function TrendChart({ data, height = 190, type = "area", range = "week", 
 
   const gridVals = [0, niceMax / 2, niceMax];
 
-  const onMove = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    let best = 0, bd = 1e9;
-    for (let i = 0; i < n; i++) {
-      const px = type === "bar" ? xBar(i) : x(i);
-      const d = Math.abs(px - mx);
-      if (d < bd) { bd = d; best = i; }
-    }
-    setHover(best);
-  };
+  // Hover hit-testing: instead of mapping the pointer into SVG units by hand
+  // (which breaks under the carousel's CSS `zoom`, where MouseEvent.clientX and
+  // getBoundingClientRect live in inconsistent coordinate spaces), we tile the
+  // plot with one transparent rect per point and let the browser hit-test. The
+  // band for point i spans the midpoints to its neighbours, so hovering always
+  // selects the nearest point — and it's immune to zoom/transforms.
+  const cx = (i) => (type === "bar" ? xBar(i) : x(i));
+  const bandL = (i) => (i === 0 ? 0 : (cx(i - 1) + cx(i)) / 2);
+  const bandR = (i) => (i === n - 1 ? W : (cx(i) + cx(i + 1)) / 2);
 
   return (
-    <div ref={ref} style={{ width: "100%", position: "relative" }}>
+    <div ref={ref} style={{ width: "100%", height: fill ? "100%" : undefined, position: "relative" }}>
       {w > 0 && (
-        <svg width={W} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)} style={{ display: "block", cursor: "crosshair" }}>
+        <svg width={W} height={height} onMouseLeave={() => setHover(null)} style={{ display: "block", cursor: "crosshair" }}>
           <defs>
             <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={accent} stopOpacity="0.34" />
@@ -150,6 +167,12 @@ export function TrendChart({ data, height = 190, type = "area", range = "week", 
             const anchor = l.i === 0 ? "start" : l.i === n - 1 ? "end" : "middle";
             return <text key={k} x={lx} y={height - 7} textAnchor={anchor} className="tick" style={{ fontSize: 11 }}>{l.text}</text>;
           })}
+          {/* Transparent per-point hit bands (topmost) — native hit-testing, zoom-safe. */}
+          {data.map((d, i) => (
+            <rect key={"hit" + i} x={bandL(i)} y={0} width={Math.max(0, bandR(i) - bandL(i))} height={height}
+              fill="transparent" style={{ pointerEvents: "all" }}
+              onMouseEnter={() => setHover(i)} onMouseMove={() => setHover(i)} />
+          ))}
         </svg>
       )}
       {hover != null && data[hover] && (
@@ -177,7 +200,15 @@ function Tooltip({ x, W, title, value }) {
 function bucketTitle(date, range) {
   if (range === "year") return date.getUTCFullYear();
   if (range === "month") return date.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
-  return "Wk of " + date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  // Week: show the full span (e.g. "Apr 13 – 19" or "Apr 27 – May 3") so it's
+  // unambiguous which week the point covers.
+  const opt = { month: "short", day: "numeric", timeZone: "UTC" };
+  const end = new Date(date.getTime() + 6 * 86400000);
+  const startTxt = date.toLocaleDateString("en-US", opt);
+  const endTxt = date.getUTCMonth() === end.getUTCMonth()
+    ? end.getUTCDate()
+    : end.toLocaleDateString("en-US", opt);
+  return startTxt + " – " + endTxt;
 }
 
 export function niceCeil(v) {
@@ -189,8 +220,9 @@ export function niceCeil(v) {
 }
 
 // ---- generic vertical bars (stacked optional) -------------------------
-export function Bars({ data, height = 150, segments = null, colors = ["var(--accent)"], valueFmt = (v) => v, labelEvery = 5, axis = true }) {
-  const [ref, w] = useMeasure();
+export function Bars({ data, height: heightProp = 150, fill = false, segments = null, colors = ["var(--accent)"], valueFmt = (v) => v, labelEvery = 5, axis = true }) {
+  const [ref, w, boxH] = useBox();
+  const height = fill && boxH > 24 ? boxH : heightProp;
   const [hover, setHover] = React.useState(null);
   const padL = 4, padR = axis ? 40 : 6, padT = 12, padB = 22;
   const W = Math.max(w, 60);
@@ -202,7 +234,7 @@ export function Bars({ data, height = 150, segments = null, colors = ["var(--acc
   const bw = Math.min(26, (innerW / n) * 0.66);
   const gridVals = axis ? [0, niceMax / 2, niceMax] : [];
   return (
-    <div ref={ref} style={{ width: "100%", position: "relative" }}>
+    <div ref={ref} style={{ width: "100%", height: fill ? "100%" : undefined, position: "relative" }}>
       {w > 0 && (
         <svg width={W} height={height} onMouseLeave={() => setHover(null)} style={{ display: "block" }}>
           {gridVals.map((gv, k) => (

@@ -1,11 +1,11 @@
-// Minimal static server for previewing the built panel (../recall/web).
+// Minimal static server for previewing the built panel (../../recall/web).
 // Resolves its root by absolute path so it doesn't depend on cwd.
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../recall/web");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../recall/web");
 const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",

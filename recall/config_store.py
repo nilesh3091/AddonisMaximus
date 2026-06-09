@@ -15,18 +15,24 @@ CONFIG_VERSION = 1
 
 SECTION_KEYS = [
     "goals", "activity", "streak", "forecast", "answerButtons",
-    "hourly", "fsrs", "deckBoard", "records", "achievements",
+    "hourly", "fsrs", "deckBoard", "bestDays", "records", "achievements",
 ]
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "version": CONFIG_VERSION,
-    "appearance": {"theme": "strava", "chart": "area", "corners": "round"},
-    "sections": {"order": list(SECTION_KEYS), "hidden": []},
+    # textScale multiplies the carousel zoom (1 = default). MUST stay in sync
+    # with web-src/src/config.js DEFAULT_CONFIG.appearance.
+    "appearance": {"theme": "strava", "chart": "area", "corners": "round", "textScale": 1},
+    # defaultCard = which card the carousel opens on (a section key); carousel-only.
+    "sections": {"order": list(SECTION_KEYS), "hidden": [], "defaultCard": "activity"},
+    # targetMode "average" tracks the user's recent weekly average for the source;
+    # "fixed" uses weeklyTarget. weeklyTarget is kept as the Custom/fallback value.
+    # MUST stay in sync with web-src/src/config.js DEFAULT_CONFIG.goals.
     "goals": [
-        {"key": "cards", "label": "Cards", "icon": "layers", "source": "total", "unit": "count", "weeklyTarget": 1200},
-        {"key": "time", "label": "Study Time", "icon": "clock", "source": "time", "unit": "time", "weeklyTarget": 25200},
-        {"key": "new", "label": "New Cards", "icon": "plus", "source": "newC", "unit": "count", "weeklyTarget": 120},
-        {"key": "days", "label": "Days Studied", "icon": "check", "source": "daysStudied", "unit": "days", "weeklyTarget": 7},
+        {"key": "cards", "label": "Cards", "icon": "layers", "source": "total", "unit": "count", "targetMode": "average", "weeklyTarget": 1200},
+        {"key": "time", "label": "Study Time", "icon": "clock", "source": "time", "unit": "time", "targetMode": "average", "weeklyTarget": 25200},
+        {"key": "new", "label": "New Cards", "icon": "plus", "source": "newC", "unit": "count", "targetMode": "average", "weeklyTarget": 120},
+        {"key": "days", "label": "Days Studied", "icon": "check", "source": "daysStudied", "unit": "days", "targetMode": "average", "weeklyTarget": 7},
     ],
     "data": {
         "includeDecks": [],         # [] = all decks
@@ -34,6 +40,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "matureThresholdDays": 21,
         "streakMinCards": 1,
     },
+    # Remembered view state (not a user-facing setting): the Week/Month/Year — and
+    # Day, on Goals — time-range toggle. Persisted so returning from study keeps
+    # the user's last-picked range. MUST stay in sync with config.js.
+    "ui": {"range": "week"},
 }
 
 
