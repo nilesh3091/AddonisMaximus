@@ -41,7 +41,9 @@ export const DEFAULT_CONFIG = {
   appearance: { theme: "strava", chart: "area", corners: "round", textScale: 1 },
   sections: {
     order: SECTIONS.map((s) => s.key),
-    hidden: [],
+    // Default-hide everything past the first 4 (goals, activity, streak, forecast).
+    // The carousel ships lean; users turn the rest on in Settings → Sections.
+    hidden: SECTIONS.slice(4).map((s) => s.key),
     // Which card the home-screen carousel opens on (a section key). Falls back to
     // the first visible card if this one is hidden/unknown. Carousel-only.
     defaultCard: "activity",

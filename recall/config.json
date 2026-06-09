@@ -2,8 +2,8 @@
   "version": 1,
   "appearance": { "theme": "strava", "chart": "area", "corners": "round" },
   "sections": {
-    "order": ["goals", "activity", "streak", "forecast", "answerButtons", "hourly", "fsrs", "deckBoard", "records", "achievements"],
-    "hidden": []
+    "order": ["goals", "activity", "streak", "forecast", "answerButtons", "hourly", "fsrs", "deckBoard", "bestDays", "records", "achievements"],
+    "hidden": ["answerButtons", "hourly", "fsrs", "deckBoard", "bestDays", "records", "achievements"]
   },
   "goals": [
     { "key": "cards", "label": "Cards", "icon": "layers", "source": "total", "unit": "count", "weeklyTarget": 1200 },
