@@ -37,7 +37,7 @@ All in `dev/web-src/src/` (rebuild after editing):
 - **Compact class-based sizes** (padding, titles, labels, tabs, top bar): the `.embed …` block near the bottom of `styles.css`.
 - **Colors / theme tokens:** `:root, :host` blocks in `styles.css` (OKLCH). The carousel overrides neutral surfaces at runtime to match Anki's background — see `applyAnkiSurfaces()` in `embed.jsx`.
 
-Cards are **natural height** (no fixed-height scaler → nothing clips). If a card is too tall it just makes the carousel taller; tune `zoom`/`compact` to shrink it.
+Carousel cards are **fixed height**: `.embed-stage { height: var(--embed-stage-h) }` (set to 320px in `embed.jsx`) with `.embed .card { height: 100%; overflow: hidden }` — so flipping cards never resizes the page, but anything past 320px (pre-zoom units) is **clipped**. Design carousel cards to fit; use width (multi-column layouts) instead of stacking tall. The window mode is natural height.
 
 ---
 

@@ -279,6 +279,185 @@ export function BestDaysCard({ anki, compact }) {
   );
 }
 
+// ======================== DECK MATURITY ETA ============================
+// One deck at a time, picked right on the card (persisted in config.maturity;
+// "" = largest deck). Projects when the deck reaches ~90% mature from the
+// user's own history. Display-only choice — switching never rescans data.
+export function MaturityCard({ anki, config, setConfig, compact }) {
+  const fmt = anki.fmt;
+  const list = anki.projection || [];
+  // Offer every deck in the collection — not just the ones the projection could
+  // model — so the chooser is always usable and never collapses to static text
+  // when only one deck has enough history. Picking an unmodelled deck shows a
+  // graceful "not enough history" note rather than doing nothing.
+  const deckNames = (anki.allDecks && anki.allDecks.length) ? anki.allDecks : list.map((d) => d.deck);
+  const want = (config && config.maturity && config.maturity.deck) || "";
+  const p = want ? (list.find((d) => d.deck === want) || null) : (list[0] || null);
+  const pickDeck = (deck) => setConfig && setConfig({ ...config, maturity: { ...(config.maturity || {}), deck } });
+
+  // Suspended cards skew this card's "new" pipeline (a big suspended backlog
+  // pushes every ETA to "2+ years"), so the include/exclude switch lives right
+  // here — it only affects this projection. Toggling config.data triggers a
+  // Python recompute (useRecallState), so the numbers refresh in place.
+  const excludeSusp = !!(config && config.data && config.data.excludeSuspended);
+  const toggleSusp = () => setConfig && setConfig({ ...config, data: { ...(config.data || {}), excludeSuspended: !excludeSusp } });
+  const suspToggle = setConfig ? (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, margin: "2px 0 6px" }}>
+      <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0, color: "var(--text2)" }}>Exclude suspended</span>
+      <button className="switch" data-on={excludeSusp ? "1" : "0"} role="switch" aria-checked={excludeSusp}
+        aria-label="Exclude suspended cards" title="Exclude suspended cards from this projection"
+        onPointerDown={(e) => e.stopPropagation()} onClick={toggleSusp}><i /></button>
+    </div>
+  ) : null;
+
+  const header = (
+    <div className="card-h">
+      <div className="icon-title"><span style={{ color: "var(--accent)" }}><Icon name="seedling" size={17} /></span><h2>Deck Maturity</h2></div>
+      {deckNames.length > 1 ? (
+        <select className="field" value={want || (p ? p.deck : "")} aria-label="Deck to project"
+          onPointerDown={(e) => e.stopPropagation()}
+          onChange={(e) => pickDeck(e.target.value)}
+          style={{ maxWidth: 170, fontSize: compact ? 11.5 : 12.5, padding: "4px 8px" }}>
+          {deckNames.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+      ) : (
+        <span className="label-sm" style={{ maxWidth: 180, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{(p && p.deck) || deckNames[0] || ""}</span>
+      )}
+    </div>
+  );
+
+  if (!p) {
+    return (
+      <div className="card">
+        {header}
+        <div className="card-body">
+          <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, marginBottom: suspToggle ? 10 : 0 }}>
+            Not enough history yet — this card fills in once this deck has review history.
+          </div>
+          {suspToggle}
+        </div>
+      </div>
+    );
+  }
+
+  const total = p.mature + p.young + p.new || 1;
+  const pct = Math.round((p.mature / total) * 100);
+  const done = p.eta90Days != null && p.eta90Days <= 0;
+  const series = p.series || [];
+  const todayMs = anki.TODAY ? anki.TODAY.getTime() : (series[0] ? series[0].t : 0);
+
+  // data.py ships per-checkpoint dates computed straight off the (uncapped) event
+  // model, so even multi-year milestones resolve. Fall back to walking the weekly
+  // `series` (which is capped at ~2 years) only if `milestones` is absent.
+  const crossMs = (targetCount) => {
+    if (p.mature >= targetCount) return todayMs;
+    for (let i = 0; i < series.length; i++) {
+      if (series[i].mature >= targetCount) {
+        if (i === 0) return series[0].t;
+        const a = series[i - 1], b = series[i];
+        const f = (targetCount - a.mature) / ((b.mature - a.mature) || 1);
+        return a.t + (b.t - a.t) * f;
+      }
+    }
+    return null;
+  };
+  const byPct = {};
+  (p.milestones || []).forEach((m) => { byPct[m.pct] = m; });
+  const mileMs = (pctTarget, count) => {
+    const m = byPct[pctTarget];
+    if (m) return m.date != null ? m.date : (m.days != null ? todayMs + m.days * 86400000 : null);
+    return crossMs(count);
+  };
+
+  // Milestones: "now" plus the 25/50/75/90% mature checkpoints, evenly spaced
+  // along the track (positions are by checkpoint, not by time, so a long tail
+  // never squashes the early dots).
+  const marks = [
+    { label: "now", count: p.mature, ms: todayMs, here: true },
+    ...[25, 50, 75, 90].map((pctT) => {
+      const count = (byPct[pctT] && byPct[pctT].count) || Math.ceil((total * pctT) / 100);
+      return { label: pctT + "%", count, ms: mileMs(pctT, count), here: p.mature >= count };
+    }),
+  ];
+
+  const startLabel = fmt.monYear(new Date(todayMs));
+  const eta90Ms = mileMs(90, marks[4].count);
+  const endLabel = done ? "Mature 🎉" : eta90Ms == null ? "2+ yrs" : fmt.monthYearFull(new Date(eta90Ms));
+  // Span = today -> the (uncapped) 90% date, so it agrees with the finish label
+  // instead of snapping to "2+ yrs" the moment the tighter eta90 cap trips.
+  const spanDays = eta90Ms == null ? null : Math.round((eta90Ms - todayMs) / 86400000);
+  const spanLabel = done ? "done"
+    : spanDays == null ? "2+ yrs"
+    : spanDays < 60 ? "~" + spanDays + " days"
+    : spanDays < 365 ? "~" + Math.round(spanDays / 30) + " mo"
+    : "~" + (spanDays / 365).toFixed(1) + " yrs";
+
+  const nodeOuter = compact ? 13 : 16;
+  const nodeInner = compact ? 11 : 13;
+
+  return (
+    <div className="card">
+      {header}
+      <div className="card-body">
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 2 }}>
+          <div className="num" style={{ fontSize: compact ? 34 : 44, lineHeight: 1 }}>
+            {pct}<span style={{ fontSize: compact ? 16 : 20, color: "var(--text2)" }}>%</span>
+          </div>
+          <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, color: "var(--text2)", fontSize: compact ? 12.5 : 13.5 }}>
+            {p.mature.toLocaleString()} of {total.toLocaleString()} mature
+          </div>
+        </div>
+        {suspToggle}
+
+        {/* Milestone track ------------------------------------------------ */}
+        <div style={{ position: "relative", margin: compact ? "16px 0 6px" : "22px 0 8px" }}>
+          <div style={{ position: "absolute", left: "10%", right: "10%", top: nodeOuter / 2 - 1, height: 2, background: "var(--line)", borderRadius: 2 }} />
+          <div style={{ display: "flex" }}>
+            {marks.map((m) => (
+              <div key={m.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", minWidth: 0 }}>
+                {m.here ? (
+                  <span style={{ width: nodeOuter, height: nodeOuter, borderRadius: "50%", background: "var(--accent)", boxShadow: "0 0 0 4px color-mix(in oklab, var(--accent) 22%, transparent)" }} />
+                ) : (
+                  <span style={{ width: nodeInner, height: nodeInner, borderRadius: "50%", background: "var(--card)", border: "2px solid var(--text3)", marginTop: (nodeOuter - nodeInner) / 2 }} />
+                )}
+                <span style={{ marginTop: 8, fontWeight: 800, fontSize: compact ? 12 : 13, color: m.here ? "var(--accent)" : "var(--text)" }}>{m.label}</span>
+                <span className="num" style={{ fontSize: compact ? 11.5 : 12.5, color: "var(--text2)", marginTop: 2 }}>{fmt.compact(m.count)}</span>
+                <span className="num" style={{ fontSize: compact ? 10.5 : 11.5, color: m.here ? "var(--accent)" : "var(--text3)", marginTop: 3, lineHeight: 1.15 }}>
+                  {m.label === "now" ? fmt.monYear(new Date(m.ms)) : m.here ? "✓ done" : m.ms == null ? "—" : fmt.monYear(new Date(m.ms))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Start → 90% timeline ------------------------------------------ */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: compact ? 10 : 14, paddingTop: compact ? 12 : 14, borderTop: "1px solid var(--border)" }}>
+          <span style={{ color: "var(--accent)" }}><Icon name="calendar" size={compact ? 15 : 17} /></span>
+          <div>
+            <div className="label-sm">Start</div>
+            <div className="num" style={{ fontSize: compact ? 14 : 16 }}>{startLabel}</div>
+          </div>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "var(--text3)" }}>
+            <span style={{ flex: 1, borderTop: "1px dashed var(--line)" }} />
+            <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0, whiteSpace: "nowrap" }}>{spanLabel}</span>
+            <span style={{ flex: 1, borderTop: "1px dashed var(--line)" }} />
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="label-sm">90% by</div>
+            <div className="num" style={{ fontSize: compact ? 14 : 16 }}>{endLabel}</div>
+          </div>
+          <span style={{ color: "var(--text2)" }}><Icon name="flag" size={compact ? 15 : 17} /></span>
+        </div>
+
+        <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, marginTop: compact ? 10 : 12 }}>
+          A card here typically matures in <b style={{ color: "var(--text)" }}>~{p.typicalDays} days</b>
+          {p.introPerDay > 0 ? <> · you start <b style={{ color: "var(--text)" }}>{p.introPerDay}</b> new/day</> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // =========================== RECORDS ===================================
 const RECORD_ICONS = ["bolt", "flame", "clock", "layers", "trophy", "target"];
 export function RecordsCard({ anki, compact }) {
@@ -298,6 +477,195 @@ export function RecordsCard({ anki, compact }) {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ======================= MONTH IN REVIEW ==============================
+// One calendar month as a full stat sheet — opens on last month, with ‹ › to
+// page through history. Counts (reviews/new/learning/relearning), pace (avg
+// session, time per card), answer-button breakdown, top decks. Laid out wide
+// (stats grid + two columns) to fit the carousel's fixed stage height.
+export function MonthCard({ anki, compact }) {
+  const fmt = anki.fmt;
+  const span = anki.monthSpan || 0;
+  // Default to last month; clamp to 0 (this month) when there's no full prior month yet.
+  const [off, setOff] = React.useState(Math.max(-1, -span));
+  const m = anki.monthStats(off);
+  const prev = anki.monthStats(off - 1);
+  const canPrev = off > -span;
+  const canNext = off < 0;
+  const go = (d) => setOff((o) => Math.min(0, Math.max(-span, o + d)));
+
+  // Change vs the previous month. Skipped for the current (partial) month — half
+  // a month against a whole one isn't a fair comparison — and when there's no
+  // prior data to compare against.
+  const delta = (!m.isCurrent && prev.hasData && prev.cards > 0)
+    ? Math.round(((m.cards - prev.cards) / prev.cards) * 100) : null;
+  const deltaUp = delta != null && delta >= 0;
+
+  // Pace. A "session" here is one study day — revlog has no session boundaries.
+  const avgSession = m.daysStudied ? m.time / m.daysStudied : 0;
+  const avgPerDay = m.daysStudied ? Math.round(m.cards / m.daysStudied) : 0;
+  const perCard = m.cards ? m.time / m.cards : 0;
+
+  const navBtn = (dir, enabled) => (
+    <button aria-label={dir < 0 ? "Previous month" : "Next month"} disabled={!enabled}
+      onPointerDown={(e) => e.stopPropagation()} onClick={() => go(dir)}
+      style={{
+        display: "grid", placeItems: "center", width: 26, height: 26, padding: 0,
+        borderRadius: 7, border: "1px solid var(--border)", background: "var(--card2)",
+        color: enabled ? "var(--text)" : "var(--text3)", cursor: enabled ? "pointer" : "default",
+        opacity: enabled ? 1 : 0.45,
+      }}>
+      <Icon name={dir < 0 ? "chevronL" : "chevronR"} size={15} />
+    </button>
+  );
+
+  const statGrid = [
+    { label: "Reviews", value: m.reviews.toLocaleString() },
+    { label: "New cards", value: m.newC.toLocaleString() },
+    { label: "Learning", value: m.learning.toLocaleString() },
+    { label: "Relearning", value: m.relearning.toLocaleString() },
+    { label: "Study time", value: fmt.fmtDurShort(m.time) },
+    { label: "Avg session", value: fmt.fmtDurShort(Math.round(avgSession)) },
+    { label: "Per card", value: perCard.toFixed(1) + "s" },
+    { label: "Retention", value: Math.round(m.retention * 100) + "%" },
+  ];
+
+  const btnTotal = m.again + m.hard + m.good + m.easy || 1;
+  const segs = [
+    { k: "Again", v: m.again, c: "var(--again)" },
+    { k: "Hard", v: m.hard, c: "var(--hard)" },
+    { k: "Good", v: m.good, c: "var(--good)" },
+    { k: "Easy", v: m.easy, c: "var(--easy)" },
+  ];
+
+  const decks = (m.decks || []).slice(0, 3);
+  const deckSum = (m.decks || []).reduce((a, d) => a + d.cards, 0) || 1;
+
+  return (
+    <div className="card">
+      <div className="card-h">
+        <div className="icon-title"><span style={{ color: "var(--accent)" }}><Icon name="calendar" size={17} /></span><h2>Month in Review</h2></div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {navBtn(-1, canPrev)}
+          <span className="num" style={{ fontSize: compact ? 13 : 14, minWidth: compact ? 78 : 86, textAlign: "center", fontWeight: 800 }}>
+            {m.label}{m.isCurrent ? <span style={{ color: "var(--text3)", fontWeight: 700, fontSize: 11 }}> · so far</span> : null}
+          </span>
+          {navBtn(1, canNext)}
+        </div>
+      </div>
+      <div className="card-body spread">
+        {!m.hasData ? (
+          <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, marginTop: 8 }}>
+            No reviews logged in {m.label}. Use ‹ › to find a month you studied.
+          </div>
+        ) : (
+          <>
+            {/* Hero: total cards + pace + delta · busiest day on the right */}
+            <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 14 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+                <div className="num" style={{ fontSize: compact ? 32 : 42, lineHeight: 1 }}>{m.cards.toLocaleString()}</div>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>
+                    cards studied · {avgPerDay.toLocaleString()}/day · {m.daysStudied} of {m.daysElapsed} days
+                  </span>
+                  {delta != null && (
+                    <span className="num" style={{ fontSize: compact ? 12 : 13, fontWeight: 800, color: deltaUp ? "oklch(0.74 0.16 150)" : "var(--text2)", marginTop: 2 }}>
+                      {deltaUp ? "▲" : "▼"} {Math.abs(delta)}% vs {fmt.monYear(prev.ref).split(" ")[0]}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {m.bestDay && (
+                <div style={{ textAlign: "right", flex: "0 0 auto" }}>
+                  <div className="label-sm" style={{ whiteSpace: "nowrap" }}>Busiest day</div>
+                  <div className="num" style={{ fontSize: compact ? 13 : 15, marginTop: 2, whiteSpace: "nowrap" }}>
+                    {fmt.fmtDate(m.bestDay.date).replace(/, \d{4}$/, "")} <span style={{ color: "var(--text2)", fontWeight: 600 }}>· {m.bestDay.total.toLocaleString()} cards</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Counts + pace grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: compact ? "8px 8px" : "10px 10px", margin: compact ? "12px 0" : "16px 0" }}>
+              {statGrid.map((t) => (
+                <div key={t.label}>
+                  <div className="label-sm" style={{ whiteSpace: "nowrap" }}>{t.label}</div>
+                  <div className="num" style={{ fontSize: compact ? 15 : 18, marginTop: 2 }}>{t.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Answer buttons (donut pie) | Top decks — side by side */}
+            <div style={{ display: "flex", gap: compact ? 18 : 24, alignItems: "flex-start" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="label-sm" style={{ marginBottom: compact ? 6 : 8 }}>Answer buttons</div>
+                <div style={{ display: "flex", alignItems: "center", gap: compact ? 12 : 16 }}>
+                  {(() => {
+                    const PIE = compact ? 84 : 104;
+                    const stroke = compact ? 17 : 21;
+                    const r = (PIE - stroke) / 2;
+                    const C = 2 * Math.PI * r;
+                    let acc = 0;
+                    const arcs = segs.map((s) => { const a = { ...s, frac: s.v / btnTotal, start: acc }; acc += a.frac; return a; });
+                    return (
+                      <svg width={PIE} height={PIE} style={{ flex: "0 0 auto" }}>
+                        <g transform={`rotate(-90 ${PIE / 2} ${PIE / 2})`}>
+                          {arcs.map((a) => a.v > 0 && (
+                            <circle key={a.k} cx={PIE / 2} cy={PIE / 2} r={r} fill="none" stroke={a.c} strokeWidth={stroke}
+                              strokeDasharray={`${Math.max(0.5, a.frac * C - 1.5)} ${C}`} strokeDashoffset={-a.start * C}>
+                              <title>{a.k} · {a.v.toLocaleString()} ({Math.round(a.frac * 100)}%)</title>
+                            </circle>
+                          ))}
+                        </g>
+                        <text x={PIE / 2} y={PIE / 2 - 1} textAnchor="middle" dominantBaseline="auto"
+                          style={{ fill: "var(--text)", fontFamily: "var(--font-num)", fontWeight: 800, fontSize: compact ? 15 : 18 }}>
+                          {Math.round(m.retention * 100)}%
+                        </text>
+                        <text x={PIE / 2} y={PIE / 2 + (compact ? 10 : 12)} textAnchor="middle"
+                          style={{ fill: "var(--text3)", fontFamily: "var(--font-ui)", fontWeight: 700, fontSize: compact ? 7.5 : 9, letterSpacing: ".05em", textTransform: "uppercase" }}>
+                          retention
+                        </text>
+                      </svg>
+                    );
+                  })()}
+                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: compact ? 5 : 7 }}>
+                    {segs.map((s) => (
+                      <div key={s.k} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: s.c, flex: "0 0 auto" }} />
+                        <span className="label" style={{ fontWeight: 700, color: "var(--text)", fontSize: compact ? 11.5 : 12.5 }}>{s.k}</span>
+                        <span className="num" style={{ fontSize: compact ? 12 : 13.5, marginLeft: "auto" }}>
+                          {s.v.toLocaleString()} <span style={{ color: "var(--text3)", fontWeight: 600, fontSize: 11 }}>{Math.round(s.v / btnTotal * 100)}%</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {decks.length > 0 && (
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="label-sm" style={{ marginBottom: compact ? 6 : 8 }}>Top decks</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: compact ? 8 : 10 }}>
+                    {decks.map((d, i) => (
+                      <div key={d.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minWidth: 0 }}>
+                        <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 2, background: DECK_COLORS[i % DECK_COLORS.length], flex: "0 0 auto" }} />
+                          <span style={{ fontWeight: 700, fontSize: compact ? 11.5 : 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</span>
+                        </span>
+                        <span className="num" style={{ fontSize: compact ? 11.5 : 12.5, flex: "0 0 auto" }}>
+                          {d.cards.toLocaleString()} <span style={{ color: "var(--text3)", fontWeight: 600, fontSize: 10.5 }}>{Math.round(d.cards / deckSum * 100)}%</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

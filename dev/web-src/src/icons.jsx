@@ -15,6 +15,7 @@ export const Icon = ({ name, size = 18, sw = 2, style, fill = "none" }) => {
     check: <path {...P} d="m4.5 12.5 5 5 10-11" />,
     target: <g {...P}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /></g>,
     calendar: <g {...P}><rect x="3" y="4.5" width="18" height="16" rx="2.5" /><path d="M3 9h18M8 2.5v4M16 2.5v4" /></g>,
+    flag: <g {...P}><path d="M5 21V4M5 4h11l-2 3.5L16 11H5" /></g>,
     sun: <g {...P}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" /></g>,
     globe: <g {...P}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18" /></g>,
     bolt: <path {...P} d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />,

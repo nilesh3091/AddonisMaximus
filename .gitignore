@@ -11,3 +11,7 @@ recall/recall.log
 
 # os
 .DS_Store
+
+# publish artifacts (staging copy of recall/ + packaged zip)
+upload/
+upload.zip

@@ -15,6 +15,7 @@
 export const SECTIONS = [
   { key: "goals", label: "Goals", icon: "target" },
   { key: "activity", label: "Activity", icon: "layers" },
+  { key: "month", label: "Month in Review", icon: "calendar" },
   { key: "streak", label: "Streak calendar", icon: "flame" },
   { key: "forecast", label: "Forecast", icon: "calendar" },
   { key: "answerButtons", label: "Answer buttons", icon: "gauge" },
@@ -24,6 +25,7 @@ export const SECTIONS = [
   { key: "bestDays", label: "You vs You (best days)", icon: "bolt" },
   { key: "records", label: "Personal records", icon: "crown" },
   { key: "achievements", label: "Achievements", icon: "star" },
+  { key: "maturity", label: "Deck maturity ETA", icon: "seedling" },
 ];
 
 export const GOAL_SOURCES = [
@@ -41,7 +43,7 @@ export const DEFAULT_CONFIG = {
   appearance: { theme: "strava", chart: "area", corners: "round", textScale: 1 },
   sections: {
     order: SECTIONS.map((s) => s.key),
-    // Default-hide everything past the first 4 (goals, activity, streak, forecast).
+    // Default-hide everything past the first 4 (goals, activity, month, streak).
     // The carousel ships lean; users turn the rest on in Settings → Sections.
     hidden: SECTIONS.slice(4).map((s) => s.key),
     // Which card the home-screen carousel opens on (a section key). Falls back to
@@ -62,7 +64,11 @@ export const DEFAULT_CONFIG = {
     cutoffHour: null,          // null = use Anki's rollover hour
     matureThresholdDays: 21,
     streakMinCards: 1,
+    excludeSuspended: false,   // drop suspended cards from the maturity pipeline
   },
+  // Which deck the Maturity ETA card tracks ("" = auto: the largest deck).
+  // Display-only — switching decks never triggers a collection rescan.
+  maturity: { deck: "" },
   // Remembered view state (not a user-facing setting): the Week/Month/Year — and
   // Day, on Goals — time-range toggle. Persisted so returning from study, which
   // re-mounts the carousel, keeps the range the user last picked instead of

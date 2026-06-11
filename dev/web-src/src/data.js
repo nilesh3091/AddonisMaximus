@@ -21,6 +21,9 @@
  *                 retr:[{band, n} × 5] },
  *     records:  [{ label, value, unit, sub }],
  *     achievements: [{ name, desc, icon, got, progress? }],
+ *     projection: [{ deck, mature, young, new, introPerDay, typicalDays,
+ *                    samples, eta90Days, eta90Date, series:[{t, mature}],
+ *                    milestones:[{pct, count, days, date}] }],
  *   }
  */
 
@@ -47,7 +50,16 @@ export function compact(n) {
 export function fmtDate(d) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 }
-export const fmt = { fmtDur, fmtDurShort, compact, fmtDate };
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// "Jun '26" — compact month + 2-digit year for the maturity milestone track.
+export function monYear(d) {
+  return MONTHS[d.getUTCMonth()] + " '" + String(d.getUTCFullYear()).slice(2);
+}
+// "Jun 2026" — full year for the start/end timeline labels.
+export function monthYearFull(d) {
+  return MONTHS[d.getUTCMonth()] + " " + d.getUTCFullYear();
+}
+export const fmt = { fmtDur, fmtDurShort, compact, fmtDate, monYear, monthYearFull };
 
 // ============================ AGGREGATION ===============================
 // Attach helpers (trend/period/goals/deckBoard/streak) onto a raw dataset.
@@ -157,6 +169,62 @@ export function buildAnki(raw, config) {
     return rows;
   }
 
+  // ---- month in review -------------------------------------------------
+  // Stats for one calendar month, addressed by offset from the current month
+  // (0 = this month, -1 = last month, …). `monthSpan` is how many whole months
+  // of data exist behind today, so the card can clamp its navigation.
+  const firstDay = days.length ? days[0].date : TODAY;
+  const monthSpan = (TODAY.getUTCFullYear() - firstDay.getUTCFullYear()) * 12
+    + (TODAY.getUTCMonth() - firstDay.getUTCMonth());
+  function monthStats(offset) {
+    const ref = new Date(Date.UTC(TODAY.getUTCFullYear(), TODAY.getUTCMonth() + offset, 1));
+    const next = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 1));
+    const list = days.filter((d) => d.date >= ref && d.date < next);
+    const daysInMonth = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 0)).getUTCDate();
+    // One bar per calendar day (0 for unstudied / missing days).
+    const bars = new Array(daysInMonth).fill(0);
+    let best = null;
+    list.forEach((d) => {
+      bars[d.date.getUTCDate() - 1] = d.total;
+      if (!best || d.total > best.total) best = d;
+    });
+    const isCurrent = offset === 0;
+    // Per-deck card counts for the month (from each day's deckSplit).
+    const deckTotals = {};
+    list.forEach((d) => {
+      Object.entries(d.deckSplit || {}).forEach(([name, n]) => {
+        deckTotals[name] = (deckTotals[name] || 0) + (n || 0);
+      });
+    });
+    const deckRows = Object.entries(deckTotals)
+      .map(([name, cards]) => ({ name, cards }))
+      .filter((r) => r.cards > 0)
+      .sort((a, b) => b.cards - a.cards);
+    return {
+      ref, offset, label: fmt.monthYearFull(ref),
+      cards: sumDays(list, "total"),
+      reviews: sumDays(list, "reviews"),
+      newC: sumDays(list, "newC"),
+      learning: sumDays(list, "learning"),
+      relearning: sumDays(list, "relearning"),
+      again: sumDays(list, "again"),
+      hard: sumDays(list, "hard"),
+      good: sumDays(list, "good"),
+      easy: sumDays(list, "easy"),
+      time: sumDays(list, "timeSec"),
+      retention: avgRetention(list),
+      decks: deckRows,
+      daysStudied: list.filter((d) => d.studied).length,
+      daysInMonth,
+      // For the current month only part of it has elapsed; drives "X of Y days".
+      daysElapsed: isCurrent ? TODAY.getUTCDate() : daysInMonth,
+      isCurrent,
+      bestDay: best ? { date: best.date, total: best.total, timeSec: best.timeSec } : null,
+      bars,
+      hasData: list.some((d) => d.studied),
+    };
+  }
+
   // "You vs You" — your biggest study days, ranked by cards cleared (time breaks
   // ties). All-time within the loaded window (same span the Records card uses).
   function topDays(n = 5) {
@@ -231,10 +299,13 @@ export function buildAnki(raw, config) {
 
   return {
     TODAY, days, decks,
+    allDecks: raw.allDecks || decks.map((d) => d.name),
     hourly: raw.hourly || [], forecast: raw.forecast || [], fsrs: raw.fsrs || {},
     records: raw.records || [], achievements: raw.achievements || [],
+    projection: raw.projection || [],
     streakDays, totalSessions, matureCount, lifetimeCards,
     startOfWeek, trend, period, periodTotals, deckBoard, topDays, goals, avgWeekly,
+    monthStats, monthSpan,
     fmt,
   };
 }
@@ -378,9 +449,42 @@ export function makeSampleRaw() {
     { name: "Lifer", desc: "100k lifetime reviews", icon: "infinity", got: lifetimeCards >= 100000 },
   ];
 
+  // Maturity projection per deck: a plausible easing curve from today's mature
+  // count up to the 90% target, like data.py's empirical projection produces.
+  const projection = DECKS.map((d) => {
+    const total = Math.round(9000 * d.weight);
+    const matureNow = Math.round(total * (0.5 + rnd() * 0.18));
+    const young = Math.round(total * 0.3);
+    const newC2 = Math.max(0, total - matureNow - young);
+    const target = Math.ceil(total * 0.9);
+    const etaDays = Math.round(130 + rnd() * 320);
+    const series = [];
+    for (let t = 0; t <= etaDays + 7; t += 7) {
+      const p = Math.min(1, t / etaDays);
+      series.push({ t: TODAY + t * DAY, mature: matureNow + Math.round((target - matureNow) * (1 - Math.pow(1 - p, 1.6))) });
+    }
+    // 25/50/75/90% checkpoints with projected day-offsets, mirroring data.py's
+    // `milestones`: ease along the same curve to the day each count is reached.
+    const milestones = [25, 50, 75, 90].map((pct) => {
+      const count = Math.ceil((total * pct) / 100);
+      if (matureNow >= count) return { pct, count, days: 0, date: TODAY };
+      // invert the easing curve used for `series` to find the crossing day
+      const frac = (count - matureNow) / (target - matureNow || 1);
+      const days = Math.round(etaDays * (1 - Math.pow(1 - Math.min(1, frac), 1 / 1.6)));
+      return { pct, count, days, date: TODAY + days * DAY };
+    });
+    return {
+      deck: d.name, mature: matureNow, young, new: newC2,
+      introPerDay: Math.round((3 + rnd() * 9) * 10) / 10,
+      typicalDays: Math.round(34 + rnd() * 22), samples: matureNow,
+      eta90Days: etaDays, eta90Date: TODAY + etaDays * DAY, milestones, series,
+    };
+  });
+
   return {
     today: TODAY,
     decks: DECKS.map((d) => ({ name: d.name, retain: d.retain })),
-    days, hourly, forecast, fsrs, records, achievements,
+    allDecks: DECKS.map((d) => d.name),
+    days, hourly, forecast, fsrs, records, achievements, projection,
   };
 }

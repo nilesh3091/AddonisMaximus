@@ -4,13 +4,17 @@ real Anki collection.
 `raw` contract (mirror of data.js):
   { today, decks:[{name,retain}], days:[{date,dow,studied,reviews,newC,learning,
     relearning,total,timeSec,again,hard,good,easy,retention,deckSplit,mature}],
-    hourly, forecast, fsrs, records, achievements }
+    hourly, forecast, fsrs, records, achievements,
+    projection:[{deck,mature,young,new,introPerDay,typicalDays,samples,
+                 eta90Days,eta90Date,series:[{t,mature}],
+                 milestones:[{pct,count,days,date}]}] }
 
 Each section is computed defensively — a failure in one (e.g. an unusual FSRS
 state) degrades that section rather than taking down the whole window.
 """
 from __future__ import annotations
 
+import bisect
 import datetime
 from typing import Any, Dict, List
 
@@ -108,6 +112,7 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
     day_cutoff = _day_cutoff(col, cfg)                # end of "today" (epoch sec)
     window_start_sec = day_cutoff - N_DAYS * DAY_SEC
     include_dids = _deck_filter_dids(col, cfg)
+    exclude_suspended = bool(data_cfg.get("excludeSuspended"))
 
     # cid -> did, and did -> top-level deck name (current deck; revlog has none).
     deck_name = {d.id: d.name for d in col.decks.all_names_and_ids()}
@@ -207,10 +212,17 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
     fsrs = guard(lambda: _fsrs(col, mature_days, include_dids), _fsrs_fallback())
     records = guard(lambda: _records(col, days), [])
     achievements = guard(lambda: _achievements(col, days, fsrs, decks), [])
+    projection = guard(lambda: _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_suspended), [])
+
+    # Every top-level deck in the collection, regardless of the include filter or
+    # whether it has reviews in the window. This drives the Settings deck picker —
+    # it must NOT be filtered, or excluding a deck would hide the control to undo it.
+    all_decks = sorted(set(did_top.values()))
 
     return {
-        "today": today_ms, "decks": decks, "days": days, "hourly": hourly,
+        "today": today_ms, "decks": decks, "allDecks": all_decks, "days": days, "hourly": hourly,
         "forecast": forecast, "fsrs": fsrs, "records": records, "achievements": achievements,
+        "projection": projection,
     }
 
 
@@ -229,6 +241,141 @@ def _forecast(col, mature_days, include_dids):
             b["mature" if (ivl or 0) >= mature_days else "young"] += 1
             b["total"] += 1
     return buckets
+
+
+def _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_suspended=False):
+    """Per-top-deck maturity ETA — when will the deck be ~90% mature?
+
+    Empirical, from the account's own history: measure how long each
+    already-mature card took (first review -> first interval >= threshold),
+    take the deck's median, then project the remaining young cards onto that
+    distribution and queue the unseen new cards at the recent intake rate.
+    """
+    DAY_MS = DAY_SEC * 1000
+    HORIZON = 730  # cap projections at 2 years out
+    now_ms = day_cutoff * 1000
+    today_ms = _civil_utc_midnight_ms(day_cutoff)
+
+    # Per-card milestones from the full revlog: first study, first time mature.
+    first_ms = dict(col.db.all(
+        "SELECT cid, MIN(id) FROM revlog WHERE type IN (0,1,2,3) GROUP BY cid"))
+    matured_ms = dict(col.db.all(
+        "SELECT cid, MIN(id) FROM revlog WHERE ivl >= ? GROUP BY cid", mature_days))
+    intake_floor_ms = now_ms - 30 * DAY_MS
+
+    # Current card states grouped by top deck. By default ALL cards count
+    # (suspended included): people routinely keep a big deck suspended and
+    # unsuspend through a syllabus, so suspended unseen cards are future intake.
+    # But a deck that is mostly a suspended backlog (e.g. a 30k-card AnKing deck)
+    # swamps the "new" pipeline and pushes every ETA to "2+ years"; the
+    # excludeSuspended setting drops those (queue = -1) so the projection
+    # reflects only the cards actually in rotation. Classify by card type
+    # (survives suspend/bury), not queue: type 0 = never studied -> "new".
+    extra, params = _deck_where(include_dids)
+    susp = " AND queue != -1" if exclude_suspended else ""
+    rows = col.db.all(
+        f"SELECT id, did, type, ivl FROM cards WHERE 1=1{susp}{extra}",
+        *params,
+    )
+    decks: Dict[str, Dict[str, Any]] = {}
+    for cid, did, ctype, ivl in rows:
+        name = did_top.get(did, "Default")
+        b = decks.setdefault(name, {
+            "deck": name, "mature": 0, "young": 0, "new": 0,
+            "samples": [], "elapsed": [], "intro30": 0,
+        })
+        f = first_ms.get(cid)
+        m = matured_ms.get(cid)
+        if f is not None and m is not None and m >= f:
+            b["samples"].append((m - f) / DAY_MS)
+        if f is not None and f >= intake_floor_ms:
+            b["intro30"] += 1
+        if ctype == 0:
+            b["new"] += 1
+        elif (ivl or 0) >= mature_days:
+            b["mature"] += 1
+        else:
+            b["young"] += 1
+            b["elapsed"].append((now_ms - f) / DAY_MS if f else None)
+
+    def median(xs):
+        xs = sorted(xs)
+        n = len(xs)
+        return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
+
+    # Small decks borrow the whole-collection median; no history at all falls
+    # back to a threshold-derived guess so the card still renders something.
+    all_samples = [s for b in decks.values() for s in b["samples"]]
+    global_med = median(all_samples) if len(all_samples) >= 12 else mature_days * 2.5
+
+    out = []
+    for b in decks.values():
+        total = b["mature"] + b["young"] + b["new"]
+        if total == 0:
+            continue
+        med = median(b["samples"]) if len(b["samples"]) >= 12 else global_med
+        intro = b["intro30"] / 30.0
+
+        # One future maturation event (days from today) per not-yet-mature card.
+        events: List[float] = []
+        for el in b["elapsed"]:
+            # Young card part-way along the curve; never "due to mature" sooner
+            # than a few days out, never later than a full fresh run.
+            events.append(med if el is None else min(max(med - el, 3.0), med))
+        if intro > 0.03:  # new cards only mature if new cards are being studied
+            events.extend((i + 1) / intro + med for i in range(b["new"]))
+        events.sort()
+
+        # Day on which the deck first reaches `count` mature cards, read straight
+        # off the (uncapped) events list so far-out milestones still resolve to a
+        # real date. None when the model never gets there — i.e. the deck has too
+        # few not-yet-mature cards queued, which for a stalled deck (intro <= 0.03,
+        # so new cards were never added to `events`) is the honest answer.
+        def cross_day(count):
+            if b["mature"] >= count:
+                return 0.0
+            need = count - b["mature"]
+            return events[need - 1] if need <= len(events) else None
+
+        # 25/50/75/90% checkpoints + their projected day-offsets. MILE_HORIZON is a
+        # sanity ceiling (~10 yrs) so a near-stalled deck doesn't print "year 2078".
+        MILE_HORIZON = 3650
+        milestones = []
+        for pct in (25, 50, 75, 90):
+            count = (total * pct + 99) // 100  # ceil(pct% of the deck)
+            d = cross_day(count)
+            if d is not None and d > MILE_HORIZON:
+                d = None
+            milestones.append({
+                "pct": pct, "count": count,
+                "days": int(round(d)) if d is not None else None,
+                "date": today_ms + int(round(d)) * DAY_MS if d is not None else None,
+            })
+
+        # eta90 keeps the tighter 2-year cap for the "at your pace" copy; the
+        # timeline's finish date uses the (uncapped) 90% milestone above.
+        target = (9 * total + 9) // 10  # ceil(90% of the deck)
+        eta = cross_day(target)
+        if eta is not None and eta > HORIZON:
+            eta = None
+
+        end = int(eta if eta is not None else (events[-1] if events else 0))
+        end = min(end + 7, HORIZON)
+        series = [
+            {"t": today_ms + t * DAY_MS, "mature": b["mature"] + bisect.bisect_right(events, t)}
+            for t in range(0, end + 1, 7)
+        ]
+        out.append({
+            "deck": b["deck"], "mature": b["mature"], "young": b["young"], "new": b["new"],
+            "introPerDay": round(intro, 2), "typicalDays": int(round(med)),
+            "samples": len(b["samples"]),
+            "eta90Days": int(round(eta)) if eta is not None else None,
+            "eta90Date": today_ms + int(round(eta)) * DAY_MS if eta is not None else None,
+            "milestones": milestones,
+            "series": series,
+        })
+    out.sort(key=lambda r: -(r["mature"] + r["young"] + r["new"]))
+    return out
 
 
 def _fsrs_fallback():

@@ -14,8 +14,9 @@ from aqt import mw
 CONFIG_VERSION = 1
 
 SECTION_KEYS = [
-    "goals", "activity", "streak", "forecast", "answerButtons",
+    "goals", "activity", "month", "streak", "forecast", "answerButtons",
     "hourly", "fsrs", "deckBoard", "bestDays", "records", "achievements",
+    "maturity",
 ]
 
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -24,7 +25,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # with web-src/src/config.js DEFAULT_CONFIG.appearance.
     "appearance": {"theme": "strava", "chart": "area", "corners": "round", "textScale": 1},
     # defaultCard = which card the carousel opens on (a section key); carousel-only.
-    # Default-hide everything past the first 4 (goals, activity, streak, forecast);
+    # Default-hide everything past the first 4 (goals, activity, month, streak);
     # the carousel ships lean and users enable the rest in Settings → Sections.
     "sections": {"order": list(SECTION_KEYS), "hidden": list(SECTION_KEYS[4:]), "defaultCard": "activity"},
     # targetMode "average" tracks the user's recent weekly average for the source;
@@ -41,7 +42,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "cutoffHour": None,         # None = use Anki's rollover hour
         "matureThresholdDays": 21,
         "streakMinCards": 1,
+        "excludeSuspended": False,  # drop suspended cards from the maturity pipeline
     },
+    # Which deck the Maturity ETA card tracks ("" = auto: the largest deck).
+    # Display-only — MUST stay in sync with config.js.
+    "maturity": {"deck": ""},
     # Remembered view state (not a user-facing setting): the Week/Month/Year — and
     # Day, on Goals — time-range toggle. Persisted so returning from study keeps
     # the user's last-picked range. MUST stay in sync with config.js.

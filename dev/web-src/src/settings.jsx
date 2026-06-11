@@ -106,12 +106,21 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
   // The carousel's "opens on" card; fall back to the first visible card if the
   // chosen one was hidden or is unknown.
   const defaultCardVal = visibleOrder.includes(config.sections.defaultCard) ? config.sections.defaultCard : visibleOrder[0];
-  const decks = anki.decks || [];
+  // Use the UNFILTERED deck list for the picker. Sourcing it from anki.decks
+  // (which is filtered by includeDecks) would hide a deck once excluded, leaving
+  // no way to re-enable it. Names already in includeDecks but absent from the
+  // collection list are still shown so a stale selection can be cleared.
+  const deckNames = [...new Set([...(anki.allDecks || (anki.decks || []).map((d) => d.name)), ...(config.data.includeDecks || [])])];
   const includeDecks = new Set(config.data.includeDecks || []);
   const toggleDeck = (name) => {
-    const next = new Set(includeDecks);
+    // An empty set is the "all decks" sentinel and renders every switch as on.
+    // Materialise the full list before toggling so turning one switch off
+    // removes just that deck instead of flipping the meaning to "only this one".
+    const next = includeDecks.size === 0 ? new Set(deckNames) : new Set(includeDecks);
     next.has(name) ? next.delete(name) : next.add(name);
-    setData("includeDecks", [...next]);
+    // Collapse back to the "all" sentinel when everything is selected again
+    // (also when the last deck is switched off — never filter down to nothing).
+    setData("includeDecks", next.size === 0 || next.size === deckNames.length ? [] : [...next]);
   };
 
   return (
@@ -233,14 +242,14 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
                 <span className="tt-unit">cards</span>
               </div>
             </div>
-            {decks.length > 0 && (
+            {deckNames.length > 0 && (
               <div style={{ marginTop: 6 }}>
                 <div className="set-label" style={{ marginBottom: 4 }}>Include decks</div>
                 <div className="set-desc" style={{ marginBottom: 8 }}>{includeDecks.size === 0 ? "All decks included." : includeDecks.size + " selected."}</div>
-                {decks.map((d) => (
-                  <div key={d.name} className="set-row" style={{ padding: "7px 0" }}>
-                    <span className="set-label" style={{ fontWeight: 600 }}>{d.name}</span>
-                    <Switch on={includeDecks.size === 0 || includeDecks.has(d.name)} onChange={() => toggleDeck(d.name)} label={d.name} />
+                {deckNames.map((name) => (
+                  <div key={name} className="set-row" style={{ padding: "7px 0" }}>
+                    <span className="set-label" style={{ fontWeight: 600 }}>{name}</span>
+                    <Switch on={includeDecks.size === 0 || includeDecks.has(name)} onChange={() => toggleDeck(name)} label={name} />
                   </div>
                 ))}
               </div>

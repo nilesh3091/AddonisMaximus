@@ -119,7 +119,7 @@ export function EmbeddedApp({ host }) {
   };
 
   const openSettings = () => setSettingsOpen(true);
-  const ctx = { anki, range: effRange, chartType: config.appearance.chart, onAddGoal: openSettings, compact: true, streakBox: 17 };
+  const ctx = { anki, config, setConfig, range: effRange, chartType: config.appearance.chart, onAddGoal: openSettings, compact: true, streakBox: 17 };
 
   return (
     <div className="embed blend">

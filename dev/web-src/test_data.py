@@ -3,7 +3,7 @@ Run: python3 web-src/test_data.py  (no Anki needed — data.py has no aqt import
 import os, sys, time, importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-spec = importlib.util.spec_from_file_location("recall_data", os.path.join(HERE, "..", "recall", "data.py"))
+spec = importlib.util.spec_from_file_location("recall_data", os.path.join(HERE, "..", "..", "recall", "data.py"))
 data = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(data)
 
@@ -23,6 +23,19 @@ class FakeDB:
     def all(self, sql, *params):
         if "SELECT id, did FROM cards" in sql:
             return [(10, 2), (11, 3), (12, 4), (13, 1)]
+        if "MIN(id) FROM revlog WHERE type IN" in sql:   # first review per card
+            base = (CUTOFF - 200 * 86400) * 1000
+            return [(cid, base + cid * 86400 * 1000) for cid in (10, 11, 12, 13)]
+        if "MIN(id) FROM revlog WHERE ivl >=" in sql:    # first time mature per card
+            base = (CUTOFF - 150 * 86400) * 1000
+            return [(10, base), (12, base + 86400 * 1000)]
+        if "SELECT id, did, type, ivl FROM cards" in sql:  # projection card states
+            # (id, did, type, ivl): two mature, one young, one new — plus a
+            # SUSPENDED unseen card (14): suspended decks must count as intake.
+            cards = [(10, 2, 2, 40), (11, 3, 2, 5), (12, 4, 2, 30), (13, 1, 0, 0), (14, 2, 0, 0)]
+            if "queue != -1" in sql:   # excludeSuspended: drop the suspended card 14
+                cards = [c for c in cards if c[0] != 14]
+            return cards
         if "FROM revlog WHERE id >= ?" in sql:
             rows = []
             for d in range(0, 40):           # 40 days of history
@@ -68,7 +81,8 @@ cfg = {"data": {"matureThresholdDays": 21, "cutoffHour": None, "includeDecks": [
 raw = data.build_dataset(FakeCol(), cfg)
 
 # ---- assertions ----
-assert set(raw) == {"today", "decks", "days", "hourly", "forecast", "fsrs", "records", "achievements"}, raw.keys()
+assert set(raw) == {"today", "decks", "allDecks", "days", "hourly", "forecast", "fsrs", "records", "achievements", "projection"}, raw.keys()
+assert isinstance(raw["allDecks"], list) and all(isinstance(n, str) for n in raw["allDecks"]), raw["allDecks"]
 assert len(raw["days"]) == data.N_DAYS, len(raw["days"])
 assert len(raw["hourly"]) == 24
 assert len(raw["forecast"]) == 30
@@ -97,6 +111,28 @@ assert raw["decks"], "no decks"
 assert all(0 <= dk["retain"] <= 1 for dk in raw["decks"])
 top = raw["decks"][0]
 assert top["name"] in {"日本語 Core", "Anatomy", "Default"}, top
+
+# projection: one entry per top deck with cards, sane fields, growing series
+proj = raw["projection"]
+assert proj, "no projection"
+for p in proj:
+    assert set(p) >= {"deck", "mature", "young", "new", "introPerDay", "typicalDays",
+                      "samples", "eta90Days", "eta90Date", "series"}, p.keys()
+    assert p["mature"] + p["young"] + p["new"] > 0
+    vals = [s["mature"] for s in p["series"]]
+    assert vals == sorted(vals), "projected mature count must not decrease"
+    assert vals[0] == p["mature"], "series must start at today's mature count"
+jp = next(p for p in proj if p["deck"] == "日本語 Core")
+# cid 10 mature (ivl 40) + cid 11 young (ivl 5, subdeck) + cid 14 suspended
+# unseen — by default suspended cards count toward the future pipeline as "new".
+assert jp["mature"] == 1 and jp["young"] == 1 and jp["new"] == 1, jp
+
+# excludeSuspended: the suspended unseen card (14) drops out of the "new" pipeline.
+cfg_susp = {"data": {"matureThresholdDays": 21, "cutoffHour": None, "includeDecks": [],
+                     "streakMinCards": 1, "excludeSuspended": True}}
+raw_susp = data.build_dataset(FakeCol(), cfg_susp)
+jp2 = next(p for p in raw_susp["projection"] if p["deck"] == "日本語 Core")
+assert jp2["mature"] == 1 and jp2["young"] == 1 and jp2["new"] == 0, jp2
 
 # forgetting curve sanity: more elapsed -> lower recall
 r_fresh = data._power_forgetting_curve(0, 100)
