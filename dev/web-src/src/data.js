@@ -430,7 +430,7 @@ export function makeSampleRaw() {
       { band: "70–80%", n: 690 },
       { band: "80–90%", n: 2050 },
       { band: "90–95%", n: 3120 },
-      { band: ">95%", n: 2480 },
+      { band: "95%+", n: 2480 },
     ],
   };
 

@@ -21,10 +21,6 @@ function injectFonts() {
   document.head.appendChild(s);
 }
 
-function report(m) {
-  try { if (typeof window.pycmd === "function") window.pycmd("recall:log:" + m); } catch (_) {}
-}
-
 // Move our block to sit right below the Review Heatmap (it's appended last, so it
 // otherwise lands at the very bottom). Falls back to just under "studied today".
 function repositionEmbed(hostEl) {
@@ -50,7 +46,7 @@ function mountEmbed() {
     hostEl.id = "recall-embed";
     document.body.appendChild(hostEl);
   }
-  if (hostEl.shadowRoot) { report("already-mounted"); return; }
+  if (hostEl.shadowRoot) return;
   try {
     const shadow = hostEl.attachShadow({ mode: "open" });
     const style = document.createElement("style");
@@ -63,9 +59,7 @@ function mountEmbed() {
     // next frame, in case the heatmap block hasn't been laid out yet.
     repositionEmbed(hostEl);
     requestAnimationFrame(() => repositionEmbed(hostEl));
-    report("embed-mounted ok");
   } catch (e) {
-    report("embed-mount-error " + (e && e.message ? e.message : e));
     hostEl.textContent = "Recall failed to load: " + (e && e.message ? e.message : e);
     hostEl.style.cssText = "color:#e8632a;font:13px sans-serif;padding:12px;";
   }
@@ -88,5 +82,5 @@ function mountWindow() {
 }
 
 injectFonts();
-if (appMode() === "embed") { report("recall.js executed (embed)"); mountEmbed(); }
+if (appMode() === "embed") mountEmbed();
 else mountWindow();

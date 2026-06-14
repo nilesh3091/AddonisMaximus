@@ -23,7 +23,10 @@ N_DAYS = 365 * 3 + 30  # ~3 years of daily history for the trend/calendar
 
 # revlog.type: 0 learn · 1 review · 2 relearn · 3 filtered/cram · 4 manual (no answer)
 REVLOG_STUDY_TYPES = (0, 1, 2, 3)
-# FSRS forgetting curve (FSRS-5 default). Good approximation for the recall bands.
+# FSRS forgetting curve. Decay is read per-card from cards.data ($.decay, present
+# on FSRS-6 collections); this is the fallback when a card stores none (FSRS-4.5/5,
+# where -0.5 is exact). The recall-band breakdown assumes the stored/default decay
+# and is a coarse approximation for heavily-overdue cards.
 _FSRS_DECAY = -0.5
 
 
@@ -381,7 +384,7 @@ def _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_sus
 def _fsrs_fallback():
     return {
         "stability": 0, "difficulty": 0.0, "retrievability": 0.0, "mature": 0, "young": 0,
-        "retr": [{"band": b, "n": 0} for b in ("<70%", "70–80%", "80–90%", "90–95%", ">95%")],
+        "retr": [{"band": b, "n": 0} for b in ("<70%", "70–80%", "80–90%", "90–95%", "95%+")],
     }
 
 
@@ -397,28 +400,39 @@ def _fsrs(col, mature_days, include_dids):
     true_due = "CASE WHEN odid==0 THEN due ELSE odue END"
     rows = col.db.all(
         f"""SELECT {true_due} AS true_due, ivl,
-                   json_extract(data,'$.s') AS s, json_extract(data,'$.d') AS d
+                   json_extract(data,'$.s') AS s, json_extract(data,'$.d') AS d,
+                   json_extract(data,'$.decay') AS decay
             FROM cards
             WHERE queue=2 AND data!='' AND json_extract(data,'$.s') IS NOT NULL{extra}""",
         *params,
     )
 
-    bands = [0, 0, 0, 0, 0]  # <70, 70-80, 80-90, 90-95, >95
+    bands = [0, 0, 0, 0, 0]  # <70, 70-80, 80-90, 90-95, >=95
     s_sum = d_sum = r_sum = 0.0
-    n = 0
+    n = d_n = 0
     if rows:
-        for true_due, ivl, s, d in rows:
+        for true_due, ivl, s, d, decay in rows:
             try:
                 s = float(s)
+                td = int(true_due)
             except (TypeError, ValueError):
                 continue
-            elapsed = max(0, today - (int(true_due) - int(ivl or 0)))
-            r = _power_forgetting_curve(elapsed, s)
+            # A filtered deck can leave a non-positive odue; that would read as a
+            # huge elapsed and mis-score the card as forgotten, so drop those rows.
+            if td <= 0:
+                continue
+            elapsed = max(0, today - (td - int(ivl or 0)))
+            try:
+                dec = float(decay)
+            except (TypeError, ValueError):
+                dec = _FSRS_DECAY
+            r = _power_forgetting_curve(elapsed, s, dec)
             n += 1
             s_sum += s
             r_sum += r
             if d is not None:
                 d_sum += (float(d) - 1.0) / 9.0
+                d_n += 1
             if r < 0.70:
                 bands[0] += 1
             elif r < 0.80:
@@ -432,18 +446,23 @@ def _fsrs(col, mature_days, include_dids):
 
     if n:
         stability = int(round(s_sum / n))
-        difficulty = d_sum / n
+        difficulty = d_sum / d_n if d_n else 0.0
         retrievability = r_sum / n
     else:
         # FSRS off / no memory state — fall back to interval-based stand-ins.
         stability = int(round(col.db.scalar(f"SELECT avg(ivl) FROM cards WHERE queue=2{extra}", *params) or 0))
-        life_rev = col.db.scalar("SELECT count() FROM revlog WHERE type IN (1,2)") or 0
-        life_again = col.db.scalar("SELECT count() FROM revlog WHERE type IN (1,2) AND ease=1") or 0
+        # Honor the same deck filter the rest of this function applies (join for did).
+        life_rev = col.db.scalar(
+            f"SELECT count() FROM revlog JOIN cards ON cards.id=revlog.cid "
+            f"WHERE revlog.type IN (1,2){extra}", *params) or 0
+        life_again = col.db.scalar(
+            f"SELECT count() FROM revlog JOIN cards ON cards.id=revlog.cid "
+            f"WHERE revlog.type IN (1,2) AND revlog.ease=1{extra}", *params) or 0
         difficulty = 0.0
         retrievability = (life_rev - life_again) / life_rev if life_rev else 0.0
         bands[4] = int(mature)  # no per-card recall available
 
-    labels = ("<70%", "70–80%", "80–90%", "90–95%", ">95%")
+    labels = ("<70%", "70–80%", "80–90%", "90–95%", "95%+")
     return {
         "stability": stability, "difficulty": difficulty, "retrievability": retrievability,
         "mature": int(mature), "young": int(young),

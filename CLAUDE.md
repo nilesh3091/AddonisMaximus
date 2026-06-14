@@ -88,13 +88,14 @@ Window → `dialog.set_bridge_command`. Carousel → `gui_hooks.webview_did_rece
 ## Publishing to AnkiWeb
 The upload package = **the contents of `recall/`**. Zip the files *inside* `recall/` (so `__init__.py` sits at the zip root — do NOT zip the `recall` folder itself), then upload at ankiweb.net → *Share* → *Upload*. Everything else lives in `dev/` and must not ship.
 - **Include:** `__init__.py`, `core.py`, `embed.py`, `dialog.py`, `config_store.py`, `data.py`, `manifest.json`, `config.json`, `config.md`, `web/recall.js`, `web/fonts/*.woff2`. (`web/index.html` is dev-only — harmless, optional to drop.)
-- **Exclude** (Anki-generated / runtime, all git-ignored): `meta.json`, `recall.log`, `__pycache__/`. These reappear whenever Anki runs through the symlink, so re-check right before zipping.
+- **Exclude** (Anki-generated / runtime, all git-ignored): `meta.json`, `__pycache__/` (both reappear whenever Anki runs through the symlink, so re-check right before zipping) and any stale `recall.log` left over from before debug logging was removed.
 
 ## Pending / TODO
-- [ ] Dial in carousel size to taste (`zoom` knob above) — or add a density control in Settings.
-- [ ] Add-on lists as "recall" → set a display name so it reads "Recall — Anki Progress".
-- [ ] Remove debug logging when done: `embed.py` `_log()` + the inline reporter, and `main.jsx` `report()` (these write `recall/recall.log`).
-- [ ] Validate FSRS numbers vs a real collection.
+- [x] Carousel size — already user-adjustable via Settings → Appearance → **Text size** (`textScale`, base `0.656`). Re-baseline the `0.656` knob in `styles.css` if a different default is ever wanted.
+- [x] Add-on display name — `manifest.json` already reads "Recall — Anki Progress".
+- [x] Debug logging removed — `embed.py` (`_log()`, the inline reporter, the `recall:log:` handler, `register()` log) and `main.jsx` (`report()`) are gone; nothing writes `recall/recall.log` anymore.
+- [x] FSRS math audited & hardened in `data.py`: reads per-card `$.decay` (FSRS-6) with `-0.5` fallback; skips non-positive `true_due` (filtered-deck `odue`); difficulty divides by count-of-cards-with-`$.d`; no-FSRS fallback now honors the deck filter; top band relabeled `95%+`. Core curve verified exact (factor `19/81`, R(0)=1, R(S)=0.9). Invariants + regression cases locked in `dev/web-src/test_data.py`.
+  - [ ] Optional: sanity-check against a real FSRS-6 collection — confirm Anki actually stores `$.decay` in `cards.data` (the read falls back to `-0.5` if absent, so there's no regression either way).
 
 ## Git restore points
 - `daf29a1` — working add-on BEFORE the compact resize.
@@ -104,4 +105,4 @@ Compare/restore with `git log --oneline`, `git diff <hash>`, or `git checkout <h
 ## Gotchas
 - Webview caches assets aggressively — always version the URL (handled by `core.script_url()`).
 - The carousel mounts in a **Shadow DOM** for style isolation; theme tokens are on `:host`; fonts are injected at runtime with an absolute path (`main.jsx`).
-- `recall/recall.log` and `recall/meta.json` are git-ignored.
+- `recall/meta.json` (and the now-retired `recall/recall.log`) are git-ignored. Debug logging was removed, so `recall.log` is no longer written.
