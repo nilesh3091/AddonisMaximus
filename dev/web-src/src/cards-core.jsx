@@ -132,28 +132,15 @@ const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "S
 // Green contribution shades matching the native Anki review-heatmap add-on above.
 const HEAT_LEVELS = ["var(--ring-track)", "#2e5130", "#3a7d3c", "#4fa84f", "#74c357"];
 
-export function StreakCard({ anki, compact, box = 14 }) {
-  const wrapRef = React.useRef(null);
-  const [availW, setAvailW] = React.useState(560);
-  const [sel, setSel] = React.useState(null);       // clicked day → { date, total }
-  React.useLayoutEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const measure = () => setAvailW(el.clientWidth || 560);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const dayMap = React.useMemo(() => {
-    const m = {};
-    anki.days.forEach((d) => { m[d.date.getUTCFullYear() + "-" + d.date.getUTCMonth() + "-" + d.date.getUTCDate()] = d; });
-    return m;
-  }, [anki]);
+// Pure heat-map layout (no hooks): trailing 12 months ending today, each a 7-row
+// block. Keeps the most-recent months that fit in `availW` (after reserving
+// `reserveW` for an optional side panel) and returns the scale/label helpers.
+// Shared by the Streak card and the combined Activity & Streak card so the
+// calendar math lives in exactly one place.
+function computeHeatmap(anki, { box, cellGap = 3, monthGap, availW, reserveW = 0 }) {
   const TODAY = anki.TODAY;
-  const statNum = compact ? 18 : 22;
-
-  // ---- yearly heat map: trailing 12 months, each as its own block ----
+  const dayMap = {};
+  anki.days.forEach((d) => { dayMap[d.date.getUTCFullYear() + "-" + d.date.getUTCMonth() + "-" + d.date.getUTCDate()] = d; });
   const startMonth = new Date(Date.UTC(TODAY.getUTCFullYear(), TODAY.getUTCMonth() - 11, 1));
   let maxTotal = 1;
   const allMonths = [];
@@ -177,17 +164,11 @@ export function StreakCard({ anki, compact, box = 14 }) {
     }
     allMonths.push({ label: MONTHS_SHORT[mo], year: y, cols, cells });
   }
-  // Bigger boxes ⇒ fewer months fit, so the grid fills the width with larger
-  // squares. Keep the trailing (most recent) months that fit at this box size.
-  const monthGap = compact ? 6 : 8;
-  const cellGap = 3;
-  const gridH = 7 * box + 6 * cellGap;              // height of a 7-row month grid
-  const avgBoxW = Math.max(compact ? 66 : 82, Math.round(box * 5.4));
-  // Reserve room for the daily-average box on the left, then keep the most recent
-  // months that still fit — this drops the oldest month(s) to make space for the box.
+  // Keep the trailing (most recent) months that still fit at this box size; the
+  // reserve drops the oldest month(s) to make space for a side panel.
   const months = (function fit() {
     const shown = [];
-    let used = avgBoxW;
+    let used = reserveW;
     for (let i = allMonths.length - 1; i >= 0; i--) {
       const m = allMonths[i];
       const mw = m.cols * box + (m.cols - 1) * cellGap;
@@ -200,14 +181,40 @@ export function StreakCard({ anki, compact, box = 14 }) {
   const firstY = months.length ? months[0].year : TODAY.getUTCFullYear();
   const lastY = months.length ? months[months.length - 1].year : TODAY.getUTCFullYear();
   const yearLabel = firstY === lastY ? String(lastY) : firstY + "–" + lastY;
-  const cellRadius = Math.max(2, Math.round(box * 0.22));
-  // "Current" daily pace: recent 12-week average cards/day (reuses anki.avgWeekly).
-  const dailyAvg = Math.round((anki.avgWeekly ? anki.avgWeekly("total") : 0) / 7) || 0;
-  // Find the single best (most reviews) day among the visible boxes — gets a trophy.
+  // The single best (most reviews) day among the visible boxes — gets a trophy.
   let best = { total: 0, mi: -1, ci: -1 };
   months.forEach((mn, mi) => mn.cells.forEach((c, ci) => {
     if (c && !c.future && c.total > best.total) best = { total: c.total, mi, ci };
   }));
+  return { months, maxTotal, level, yearLabel, best };
+}
+
+export function StreakCard({ anki, compact, box = 14 }) {
+  const wrapRef = React.useRef(null);
+  const [availW, setAvailW] = React.useState(560);
+  const [sel, setSel] = React.useState(null);       // clicked day → { date, total }
+  React.useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const measure = () => setAvailW(el.clientWidth || 560);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const statNum = compact ? 18 : 22;
+
+  // ---- yearly heat map: trailing 12 months, each as its own block ----
+  // Bigger boxes ⇒ fewer months fit, so the grid fills the width with larger
+  // squares; the fit reserves room on the left for the daily-average box.
+  const monthGap = compact ? 6 : 8;
+  const cellGap = 3;
+  const gridH = 7 * box + 6 * cellGap;              // height of a 7-row month grid
+  const avgBoxW = Math.max(compact ? 66 : 82, Math.round(box * 5.4));
+  const { months, level, yearLabel, best } = computeHeatmap(anki, { box, cellGap, monthGap, availW, reserveW: avgBoxW });
+  const cellRadius = Math.max(2, Math.round(box * 0.22));
+  // "Current" daily pace: recent 12-week average cards/day (reuses anki.avgWeekly).
+  const dailyAvg = Math.round((anki.avgWeekly ? anki.avgWeekly("total") : 0) / 7) || 0;
   return (
     <div className="card" style={{ position: "relative", overflow: "hidden" }}>
       <div className="card-h">
@@ -295,6 +302,131 @@ export function StreakCard({ anki, compact, box = 14 }) {
             ))}
             <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>More</span>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ====================== HEAT-MAP PANEL (no info box) ===================
+// The Streak calendar trimmed for the combined card: same coloured grid and
+// best-day trophy, but no daily-average info box and no click-to-inspect — it
+// just fills its column. Measures its own width so it packs the months that fit.
+function HeatmapPanel({ anki, compact, box = 14 }) {
+  const wrapRef = React.useRef(null);
+  const [availW, setAvailW] = React.useState(420);
+  React.useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const measure = () => setAvailW(el.clientWidth || 420);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const monthGap = compact ? 6 : 8;
+  const cellGap = 3;
+  const { months, level, yearLabel, best } = computeHeatmap(anki, { box, cellGap, monthGap, availW, reserveW: 0 });
+  const cellRadius = Math.max(2, Math.round(box * 0.22));
+  return (
+    <div ref={wrapRef} style={{ flex: "1 1 auto", display: "flex", flexDirection: "column", justifyContent: "center", minHeight: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: compact ? 10 : 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <span style={{ color: "var(--accent)", display: "flex" }}><Icon name="flame" size={compact ? 14 : 16} /></span>
+          <span className="num" style={{ fontSize: compact ? 16 : 20, color: "var(--accent)" }}>{anki.streakDays}</span>
+          <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>day streak</span>
+        </div>
+        <span className="label-sm">{yearLabel}</span>
+      </div>
+      <div style={{ display: "flex", gap: monthGap, alignItems: "flex-start", justifyContent: "center" }}>
+        {months.map((mn, mi) => (
+          <div key={mi} style={{ flex: "0 0 auto" }}>
+            <div style={{ fontSize: compact ? 8.5 : 9.5, fontWeight: 700, color: "var(--text3)", marginBottom: 5, whiteSpace: "nowrap" }}>{mn.label}</div>
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${mn.cols}, ${box}px)`, gap: cellGap }}>
+              {mn.cells.map((c, ci) => {
+                if (c == null) return <div key={ci} style={{ width: box, height: box }} />;
+                const isBest = mi === best.mi && ci === best.ci;
+                return <div key={ci}
+                  title={c.future ? "" : (isBest ? "Best day — " : "") + c.total + " cards"}
+                  style={{
+                    width: box, height: box, borderRadius: cellRadius,
+                    background: c.future ? "transparent" : HEAT_LEVELS[level(c.total)],
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    boxShadow: isBest ? "0 0 0 1.5px #ffce47" : "none",
+                  }}>
+                    {isBest
+                      ? <span style={{ color: "#ffd86b", display: "flex", filter: "drop-shadow(0 1px 1px rgba(0,0,0,.5))" }}><Icon name="trophy" size={Math.round(box * 0.62)} sw={2.2} /></span>
+                      : null}
+                  </div>;
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginTop: compact ? 10 : 14 }}>
+        <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>Less</span>
+        {HEAT_LEVELS.map((bg, i) => (
+          <span key={i} style={{ width: compact ? 9 : 11, height: compact ? 9 : 11, borderRadius: 2, background: bg }} />
+        ))}
+        <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>More</span>
+      </div>
+    </div>
+  );
+}
+
+// ===================== ACTIVITY & STREAK (combined) ====================
+// One card that pairs the trend chart (left half) with the heat-map (right
+// half, no info box). The chart half mirrors the Activity card — tabs, the
+// period summary, and the trend graph — and tracks the Week/Month/Year toggle.
+export function OverviewCard({ anki, range, chartType, compact }) {
+  const [tab, setTab] = React.useState("total");
+  const data = anki.trend(range, tab);
+  const p = anki.period(range, tab);
+  const fmt = anki.fmt;
+  const active = TAB_LIST.find((t) => t.key === tab);
+  const periodWord = range === "week" ? "This week" : range === "month" ? "This month" : "This year";
+  const trendWord = range === "week" ? "Past 12 weeks" : range === "month" ? "Past 12 months" : "By year";
+  return (
+    <div className="card">
+      <div className="card-h">
+        <div className="icon-title"><span style={{ color: "var(--accent)" }}><Icon name="layers" size={compact ? 15 : 18} /></span><h2>Activity &amp; Streak</h2></div>
+      </div>
+      <div className="card-body" style={{ flexDirection: "row", gap: compact ? 18 : 28, minHeight: compact ? 0 : 300 }}>
+        {/* LEFT — trend chart */}
+        <div style={{ flex: "1 1 50%", minWidth: 0, display: "flex", flexDirection: "column" }}>
+          <div className="tabs">
+            {TAB_LIST.map((t) => (
+              <button key={t.key} className={"tab" + (t.key === tab ? " active" : "")} onClick={() => setTab(t.key)}>
+                <span className="ti"><Icon name={t.icon} size={compact ? 13 : 15} /></span>{t.label}
+              </button>
+            ))}
+          </div>
+          <div className="label" style={{ fontWeight: 700, color: "var(--text)", fontSize: compact ? 13 : 15, margin: compact ? "12px 0 2px" : "18px 0 2px" }}>{periodWord}</div>
+          <div className="stat-row" key={tab + range} style={{ margin: compact ? "8px 0 2px" : "12px 0 2px" }}>
+            <div className="stat fade">
+              <div className="label-sm">{active.label}</div>
+              <div className="num big">{p.cards.toLocaleString()}</div>
+            </div>
+            <div className="stat fade" style={{ animationDelay: ".04s" }}>
+              <div className="label-sm">Time</div>
+              <div className="num big">{fmt.fmtDurShort(p.time)}</div>
+            </div>
+            <div className="stat fade" style={{ animationDelay: ".08s" }}>
+              <div className="label-sm">Retention</div>
+              <div className="num big">{Math.round(p.retention * 100)}<span className="u">%</span></div>
+            </div>
+          </div>
+          <div className="label-sm" style={{ margin: compact ? "8px 0 2px" : "14px 0 2px" }}>{trendWord}</div>
+          <div className="chart-fill">
+            <TrendChart data={data} range={range} type={chartType} fill
+              valueFmt={(v) => fmt.compact(Math.round(v))} />
+          </div>
+        </div>
+        {/* divider */}
+        <div style={{ width: 1, alignSelf: "stretch", background: "var(--border)", flex: "0 0 auto" }} />
+        {/* RIGHT — heat-map (no info box) */}
+        <div style={{ flex: "1 1 50%", minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          <HeatmapPanel anki={anki} compact={compact} box={compact ? 13 : 15} />
         </div>
       </div>
     </div>

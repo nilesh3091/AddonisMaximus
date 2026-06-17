@@ -1,7 +1,7 @@
 /* Shared card renderer so the window (scroll) and the home-screen (carousel)
    render identical cards from a section key. */
 import React from "react";
-import { GoalsCard, ActivityCard, StreakCard } from "./cards-core.jsx";
+import { GoalsCard, ActivityCard, StreakCard, OverviewCard } from "./cards-core.jsx";
 import { MonthCard, ForecastCard, AnswerButtonsCard, HourlyCard, FsrsCard, DeckBoardCard, BestDaysCard, RecordsCard, AchievementsCard, MaturityCard } from "./cards-extra.jsx";
 
 export function renderCard(key, ctx) {
@@ -10,6 +10,7 @@ export function renderCard(key, ctx) {
   switch (key) {
     case "goals": return <GoalsCard anki={anki} range={range} onAddGoal={onAddGoal} compact={c} />;
     case "activity": return <ActivityCard anki={anki} range={range} chartType={chartType} compact={c} />;
+    case "overview": return <OverviewCard anki={anki} range={range} chartType={chartType} compact={c} />;
     case "month": return <MonthCard anki={anki} compact={c} />;
     case "streak": return <StreakCard anki={anki} compact={c} box={streakBox} />;
     case "forecast": return <ForecastCard anki={anki} compact={c} />;

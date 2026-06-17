@@ -1,20 +1,24 @@
 {
   "version": 1,
-  "appearance": { "theme": "strava", "chart": "area", "corners": "round" },
+  "appearance": { "theme": "strava", "chart": "area", "corners": "round", "textScale": 1 },
   "sections": {
-    "order": ["goals", "activity", "streak", "forecast", "answerButtons", "hourly", "fsrs", "deckBoard", "bestDays", "records", "achievements"],
-    "hidden": ["answerButtons", "hourly", "fsrs", "deckBoard", "bestDays", "records", "achievements"]
+    "order": ["goals", "activity", "overview", "month", "streak", "forecast", "answerButtons", "hourly", "fsrs", "deckBoard", "bestDays", "records", "achievements", "maturity"],
+    "hidden": ["forecast", "answerButtons", "hourly", "fsrs", "deckBoard", "bestDays", "records", "achievements", "maturity"],
+    "defaultCard": "overview"
   },
   "goals": [
-    { "key": "cards", "label": "Cards", "icon": "layers", "source": "total", "unit": "count", "weeklyTarget": 1200 },
-    { "key": "time", "label": "Study Time", "icon": "clock", "source": "time", "unit": "time", "weeklyTarget": 25200 },
-    { "key": "new", "label": "New Cards", "icon": "plus", "source": "newC", "unit": "count", "weeklyTarget": 120 },
-    { "key": "days", "label": "Days Studied", "icon": "check", "source": "daysStudied", "unit": "days", "weeklyTarget": 7 }
+    { "key": "cards", "label": "Cards", "icon": "layers", "source": "total", "unit": "count", "targetMode": "average", "weeklyTarget": 1200 },
+    { "key": "time", "label": "Study Time", "icon": "clock", "source": "time", "unit": "time", "targetMode": "average", "weeklyTarget": 25200 },
+    { "key": "new", "label": "New Cards", "icon": "plus", "source": "newC", "unit": "count", "targetMode": "average", "weeklyTarget": 120 },
+    { "key": "days", "label": "Days Studied", "icon": "check", "source": "daysStudied", "unit": "days", "targetMode": "average", "weeklyTarget": 7 }
   ],
   "data": {
     "includeDecks": [],
     "cutoffHour": null,
     "matureThresholdDays": 21,
-    "streakMinCards": 1
-  }
+    "streakMinCards": 1,
+    "excludeSuspended": false
+  },
+  "maturity": { "deck": "" },
+  "ui": { "range": "week" }
 }

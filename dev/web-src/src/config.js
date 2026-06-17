@@ -15,6 +15,7 @@
 export const SECTIONS = [
   { key: "goals", label: "Goals", icon: "target" },
   { key: "activity", label: "Activity", icon: "layers" },
+  { key: "overview", label: "Activity & Streak", icon: "layers" },
   { key: "month", label: "Month in Review", icon: "calendar" },
   { key: "streak", label: "Streak calendar", icon: "flame" },
   { key: "forecast", label: "Forecast", icon: "calendar" },
@@ -43,12 +44,12 @@ export const DEFAULT_CONFIG = {
   appearance: { theme: "strava", chart: "area", corners: "round", textScale: 1 },
   sections: {
     order: SECTIONS.map((s) => s.key),
-    // Default-hide everything past the first 4 (goals, activity, month, streak).
-    // The carousel ships lean; users turn the rest on in Settings → Sections.
-    hidden: SECTIONS.slice(4).map((s) => s.key),
+    // Default-hide everything past the first 5 (goals, activity, overview, month,
+    // streak). The carousel ships lean; users turn the rest on in Settings → Sections.
+    hidden: SECTIONS.slice(5).map((s) => s.key),
     // Which card the home-screen carousel opens on (a section key). Falls back to
     // the first visible card if this one is hidden/unknown. Carousel-only.
-    defaultCard: "activity",
+    defaultCard: "overview",
   },
   // targetMode: "average" = target tracks the user's recent weekly average for the
   // source; "fixed" = use weeklyTarget. weeklyTarget is kept as the fallback/Custom

@@ -14,7 +14,7 @@ from aqt import mw
 CONFIG_VERSION = 1
 
 SECTION_KEYS = [
-    "goals", "activity", "month", "streak", "forecast", "answerButtons",
+    "goals", "activity", "overview", "month", "streak", "forecast", "answerButtons",
     "hourly", "fsrs", "deckBoard", "bestDays", "records", "achievements",
     "maturity",
 ]
@@ -25,9 +25,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # with web-src/src/config.js DEFAULT_CONFIG.appearance.
     "appearance": {"theme": "strava", "chart": "area", "corners": "round", "textScale": 1},
     # defaultCard = which card the carousel opens on (a section key); carousel-only.
-    # Default-hide everything past the first 4 (goals, activity, month, streak);
-    # the carousel ships lean and users enable the rest in Settings → Sections.
-    "sections": {"order": list(SECTION_KEYS), "hidden": list(SECTION_KEYS[4:]), "defaultCard": "activity"},
+    # Default-hide everything past the first 5 (goals, activity, overview, month,
+    # streak); the carousel ships lean and users enable the rest in Settings → Sections.
+    "sections": {"order": list(SECTION_KEYS), "hidden": list(SECTION_KEYS[5:]), "defaultCard": "overview"},
     # targetMode "average" tracks the user's recent weekly average for the source;
     # "fixed" uses weeklyTarget. weeklyTarget is kept as the Custom/fallback value.
     # MUST stay in sync with web-src/src/config.js DEFAULT_CONFIG.goals.

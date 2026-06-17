@@ -23,7 +23,7 @@ function RangeToggle({ value, onChange, disabled, options = ["week", "month", "y
 }
 
 // Cards whose contents actually change with the Week/Month/Year range.
-const RANGE_CARDS = new Set(["goals", "activity", "answerButtons", "deckBoard"]);
+const RANGE_CARDS = new Set(["goals", "activity", "overview", "answerButtons", "deckBoard"]);
 // Only Goals offers a daily period — kept off every other card by request.
 const DAY_CARDS = new Set(["goals"]);
 
