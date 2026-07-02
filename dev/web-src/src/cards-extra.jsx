@@ -671,6 +671,142 @@ export function MonthCard({ anki, compact }) {
   );
 }
 
+// ========================= PENDING TODAY ===============================
+// A burn-down "mountain" of today's workload: the coloured mass = cards still
+// to study (new + learning + due) and it shrinks toward the ground as you clear
+// them. A dashed ghost behind it is the morning's full mountain; a flag plants
+// on the summit once it's cleared. Defaults to all decks; the header dropdown
+// focuses one. Display-only — `pending` (remaining) and today's study record
+// (done) already live in the data, so switching decks never rescans.
+const PENDING_KINDS = [
+  { key: "new", label: "New", color: "oklch(0.70 0.14 250)" },
+  { key: "learn", label: "Learning", color: "oklch(0.78 0.15 70)" },
+  { key: "review", label: "Due", color: "oklch(0.74 0.16 150)" },
+];
+const PEND_DONE = "oklch(0.74 0.16 150)";
+const PEND_GOLD = "oklch(0.80 0.15 85)";
+
+export function PendingCard({ anki, compact }) {
+  const [boxRef, boxW, boxH] = useBox();
+  const rows = anki.pending || [];
+  const [deck, setDeck] = React.useState("");   // "" = all decks
+  // Ignore a selection whose deck no longer has anything pending (studied away).
+  const sel = deck && rows.some((r) => r.deck === deck) ? deck : "";
+  const scope = sel ? rows.filter((r) => r.deck === sel) : rows;
+  const counts = {
+    new: scope.reduce((a, r) => a + (r.new || 0), 0),
+    learn: scope.reduce((a, r) => a + (r.learn || 0), 0),
+    review: scope.reduce((a, r) => a + (r.review || 0), 0),
+  };
+  const remaining = counts.new + counts.learn + counts.review;
+
+  // "Done today" for the same scope, from today's study record — this is what
+  // makes the mountain shrink as the day goes on.
+  const today = anki.days && anki.days.length ? anki.days[anki.days.length - 1] : null;
+  const done = sel ? ((today && today.deckSplit && today.deckSplit[sel]) || 0) : (today ? today.total : 0);
+  const peak = done + remaining;                       // this morning's mountain
+  const k = peak > 0 ? remaining / peak : 0;           // fraction still standing
+  const pct = peak > 0 ? Math.round((done / peak) * 100) : 0;
+  const allClear = remaining === 0;
+
+  const header = (
+    <div className="card-h">
+      <div className="icon-title"><span style={{ color: "var(--accent)" }}><Icon name="mountain" size={17} /></span><h2>Pending Today</h2></div>
+      {rows.length > 1 ? (
+        <select className="field" value={sel} aria-label="Deck to show"
+          onPointerDown={(e) => e.stopPropagation()}
+          onChange={(e) => setDeck(e.target.value)}
+          style={{ maxWidth: 170, fontSize: compact ? 11.5 : 12.5, padding: "4px 8px" }}>
+          <option value="">All decks</option>
+          {rows.map((r) => <option key={r.deck} value={r.deck}>{r.deck}</option>)}
+        </select>
+      ) : rows.length === 1 ? (
+        <span className="label-sm" style={{ maxWidth: 180, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{rows[0].deck}</span>
+      ) : null}
+    </div>
+  );
+
+  // ---- mountain scene geometry --------------------------------------------
+  const W = Math.max(boxW, 80);
+  const H = boxH > 60 ? boxH : (compact ? 140 : 176);
+  const groundY = H - 5;
+  // ridge as (x,y) fractions of the box; index 3 is the main summit.
+  const FR = [[0, 0.97], [0.15, 0.58], [0.29, 0.76], [0.5, 0.14], [0.67, 0.64], [0.82, 0.44], [1, 0.97]];
+  const full = FR.map(([fx, fy]) => [fx * W, fy * H]);
+  const scaleY = (y) => groundY - k * (groundY - y);   // shrink the ridge toward the ground
+  const solid = full.map(([x, y]) => [x, scaleY(y)]);
+  const toPath = (pts) => `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}` + pts.slice(1).map((p) => `L${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join("") + "Z";
+  const flagPt = allClear ? (peak > 0 ? full[3] : [W * 0.5, groundY]) : solid[3];
+  const fh = compact ? 15 : 19, fw = compact ? 12 : 15;
+  const gid = "pend-grad";
+
+  const caption = allClear
+    ? (done > 0 ? "cleared — nice work 🎉" : "nothing due today")
+    : ((remaining === 1 ? "card" : "cards") + " left today" + (sel ? " · " + sel : ""));
+
+  return (
+    <div className="card">
+      {header}
+      <div className="card-body">
+        {/* hero: remaining count (the mountain still ahead) + climb progress */}
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
+            <div className="num" style={{ fontSize: compact ? 38 : 48, lineHeight: 1, color: allClear ? PEND_DONE : "var(--accent)" }}>{remaining.toLocaleString()}</div>
+            <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, color: "var(--text2)", fontSize: compact ? 12.5 : 13.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{caption}</div>
+          </div>
+          {peak > 0 && (
+            <div style={{ textAlign: "right", flex: "0 0 auto" }}>
+              <div className="num" style={{ fontSize: compact ? 15 : 18, color: PEND_DONE, lineHeight: 1 }}>{pct}<span style={{ fontSize: "0.6em" }}>%</span></div>
+              <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, marginTop: 2 }}>{done.toLocaleString()} done</div>
+            </div>
+          )}
+        </div>
+
+        {/* the mountain — coloured mass = cards left; it erodes as you study */}
+        <div ref={boxRef} className="chart-fill" style={{ display: "block", marginTop: compact ? 4 : 8 }}>
+          {boxW > 0 && (
+            <svg width={W} height={H} style={{ display: "block", overflow: "visible" }}>
+              <defs>
+                <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stopColor="var(--accent)" stopOpacity="0.92" />
+                  <stop offset="1" stopColor="var(--accent)" stopOpacity="0.4" />
+                </linearGradient>
+              </defs>
+              {/* sun */}
+              <circle cx={W * 0.85} cy={H * 0.18} r={compact ? 9 : 11} fill="color-mix(in oklab, var(--accent) 26%, transparent)" />
+              {/* ghost: this morning's full mountain */}
+              {peak > 0 && (
+                <path d={toPath(full)} fill="color-mix(in oklab, var(--accent) 7%, transparent)"
+                  stroke="color-mix(in oklab, var(--accent) 32%, transparent)" strokeWidth="1.5" strokeDasharray="4 4" />
+              )}
+              {/* solid: what's still to do */}
+              {k > 0.002 && <path d={toPath(solid)} fill={`url(#${gid})`} stroke="var(--accent)" strokeWidth="1.5" strokeOpacity="0.55" />}
+              {/* ground */}
+              <line x1="0" y1={groundY} x2={W} y2={groundY} stroke="var(--border)" strokeWidth="1.5" />
+              {/* flag — at the summit you still face, or planted on top once cleared */}
+              <g transform={`translate(${flagPt[0].toFixed(1)} ${flagPt[1].toFixed(1)})`}>
+                <line x1="0" y1="0" x2="0" y2={-fh} stroke={allClear ? PEND_GOLD : "var(--text2)"} strokeWidth="2" strokeLinecap="round" />
+                <path d={`M0 ${-fh}l${fw} 4l${-fw} 4z`} fill={allClear ? PEND_GOLD : "var(--accent)"} />
+              </g>
+            </svg>
+          )}
+        </div>
+
+        {/* breakdown so the New / Learning / Due counts stay visible */}
+        <div style={{ display: "flex", gap: compact ? 16 : 22, marginTop: compact ? 8 : 12 }}>
+          {PENDING_KINDS.map((p) => (
+            <div key={p.key} style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 3, background: p.color, flex: "0 0 auto" }} />
+              <span className="label" style={{ fontWeight: 700, color: "var(--text2)" }}>{p.label}</span>
+              <span className="num" style={{ fontSize: compact ? 14 : 16 }}>{counts[p.key].toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ========================= ACHIEVEMENTS ================================
 export function AchievementsCard({ anki, compact }) {
   const list = anki.achievements;

@@ -42,6 +42,7 @@ export const Icon = ({ name, size = 18, sw = 2, style, fill = "none" }) => {
     eye: <g {...P}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></g>,
     eyeOff: <g {...P}><path d="M9.9 5.2A9.5 9.5 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 3.9M6.6 6.7A17 17 0 0 0 2 12s3.5 7 10 7a9.3 9.3 0 0 0 4.2-1M3 3l18 18M9.5 9.6a3 3 0 0 0 4.2 4.2" /></g>,
     database: <g {...P}><ellipse cx="12" cy="5.5" rx="8" ry="3" /><path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" /></g>,
+    mountain: <path {...P} d="M2.5 20 9 8l3.2 5 2.6-3.6L21.5 20Z" />,
   };
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} style={style} aria-hidden="true">

@@ -18,6 +18,7 @@ export const SECTIONS = [
   { key: "overview", label: "Activity & Streak", icon: "layers" },
   { key: "month", label: "Month in Review", icon: "calendar" },
   { key: "streak", label: "Streak calendar", icon: "flame" },
+  { key: "pending", label: "Pending today", icon: "cards" },
   { key: "forecast", label: "Forecast", icon: "calendar" },
   { key: "answerButtons", label: "Answer buttons", icon: "gauge" },
   { key: "hourly", label: "When you study best", icon: "clock" },
@@ -44,9 +45,9 @@ export const DEFAULT_CONFIG = {
   appearance: { theme: "strava", chart: "area", corners: "round", textScale: 1 },
   sections: {
     order: SECTIONS.map((s) => s.key),
-    // Default-hide everything past the first 5 (goals, activity, overview, month,
-    // streak). The carousel ships lean; users turn the rest on in Settings → Sections.
-    hidden: SECTIONS.slice(5).map((s) => s.key),
+    // Default-hide everything past the first 6 (goals, activity, overview, month,
+    // streak, pending). The carousel ships lean; users turn the rest on in Settings → Sections.
+    hidden: SECTIONS.slice(6).map((s) => s.key),
     // Which card the home-screen carousel opens on (a section key). Falls back to
     // the first visible card if this one is hidden/unknown. Carousel-only.
     defaultCard: "overview",

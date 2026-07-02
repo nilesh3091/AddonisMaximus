@@ -65,9 +65,24 @@ class FakeDB:
         return 0
 
 
+class FakeNode:
+    def __init__(s, name, deck_id, new, learn, review, children=()):
+        s.name, s.deck_id = name, deck_id
+        s.new_count, s.learn_count, s.review_count = new, learn, review
+        s.children = list(children)
+
+
 class FakeSched:
     day_cutoff = CUTOFF
     today = TODAY
+
+    def deck_due_tree(self):
+        # Root with top-level decks; "Default" has nothing pending (dropped).
+        return FakeNode("", 0, 0, 0, 0, children=[
+            FakeNode("Default", 1, 0, 0, 0),
+            FakeNode("日本語 Core", 2, 5, 2, 30),
+            FakeNode("Anatomy", 4, 3, 0, 10),
+        ])
 
 
 class FakeCol:
@@ -81,7 +96,7 @@ cfg = {"data": {"matureThresholdDays": 21, "cutoffHour": None, "includeDecks": [
 raw = data.build_dataset(FakeCol(), cfg)
 
 # ---- assertions ----
-assert set(raw) == {"today", "decks", "allDecks", "days", "hourly", "forecast", "fsrs", "records", "achievements", "projection"}, raw.keys()
+assert set(raw) == {"today", "decks", "allDecks", "days", "hourly", "forecast", "fsrs", "records", "achievements", "projection", "pending"}, raw.keys()
 assert isinstance(raw["allDecks"], list) and all(isinstance(n, str) for n in raw["allDecks"]), raw["allDecks"]
 assert len(raw["days"]) == data.N_DAYS, len(raw["days"])
 assert len(raw["hourly"]) == 24
@@ -133,6 +148,17 @@ cfg_susp = {"data": {"matureThresholdDays": 21, "cutoffHour": None, "includeDeck
 raw_susp = data.build_dataset(FakeCol(), cfg_susp)
 jp2 = next(p for p in raw_susp["projection"] if p["deck"] == "日本語 Core")
 assert jp2["mature"] == 1 and jp2["young"] == 1 and jp2["new"] == 0, jp2
+
+# pending: per-top-deck due counts from the scheduler tree; empty decks dropped,
+# sorted busiest-first; each row carries new/learn/review.
+pend = raw["pending"]
+assert [r["deck"] for r in pend] == ["日本語 Core", "Anatomy"], pend  # Default (0) dropped, sorted by total
+assert pend[0] == {"deck": "日本語 Core", "new": 5, "learn": 2, "review": 30}, pend[0]
+assert pend[1] == {"deck": "Anatomy", "new": 3, "learn": 0, "review": 10}, pend[1]
+# include filter scopes pending to the selected top deck(s).
+raw_jp = data.build_dataset(FakeCol(), {"data": {"matureThresholdDays": 21, "cutoffHour": None,
+                                                 "includeDecks": ["日本語 Core"], "streakMinCards": 1}})
+assert [r["deck"] for r in raw_jp["pending"]] == ["日本語 Core"], raw_jp["pending"]
 
 # ---- FSRS math invariants (locked in by the data.py audit) ----
 # factor anchor: 0.9**(1/decay)-1 == 19/81 for the default decay -0.5

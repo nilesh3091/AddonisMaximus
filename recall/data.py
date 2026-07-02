@@ -7,7 +7,8 @@ real Anki collection.
     hourly, forecast, fsrs, records, achievements,
     projection:[{deck,mature,young,new,introPerDay,typicalDays,samples,
                  eta90Days,eta90Date,series:[{t,mature}],
-                 milestones:[{pct,count,days,date}]}] }
+                 milestones:[{pct,count,days,date}]}],
+    pending:[{deck,new,learn,review}] }
 
 Each section is computed defensively — a failure in one (e.g. an unusual FSRS
 state) degrades that section rather than taking down the whole window.
@@ -216,6 +217,7 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
     records = guard(lambda: _records(col, days), [])
     achievements = guard(lambda: _achievements(col, days, fsrs, decks), [])
     projection = guard(lambda: _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_suspended), [])
+    pending = guard(lambda: _pending(col, include_dids), [])
 
     # Every top-level deck in the collection, regardless of the include filter or
     # whether it has reviews in the window. This drives the Settings deck picker —
@@ -225,8 +227,28 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "today": today_ms, "decks": decks, "allDecks": all_decks, "days": days, "hourly": hourly,
         "forecast": forecast, "fsrs": fsrs, "records": records, "achievements": achievements,
-        "projection": projection,
+        "projection": projection, "pending": pending,
     }
+
+
+def _pending(col, include_dids):
+    """Cards waiting to be studied today, per top-level deck — new / learning /
+    due. Read straight from the scheduler's due tree so the counts match exactly
+    what Anki shows in the deck list (daily new/review limits already applied).
+    Decks with nothing pending are dropped; the list is sorted busiest-first."""
+    tree = col.sched.deck_due_tree()
+    rows: Dict[str, Dict[str, Any]] = {}
+    for node in getattr(tree, "children", None) or []:
+        if include_dids is not None and getattr(node, "deck_id", None) not in include_dids:
+            continue
+        name = _top_deck(getattr(node, "name", "") or "Default")
+        r = rows.setdefault(name, {"deck": name, "new": 0, "learn": 0, "review": 0})
+        r["new"] += int(getattr(node, "new_count", 0) or 0)
+        r["learn"] += int(getattr(node, "learn_count", 0) or 0)
+        r["review"] += int(getattr(node, "review_count", 0) or 0)
+    out = [r for r in rows.values() if (r["new"] + r["learn"] + r["review"]) > 0]
+    out.sort(key=lambda r: -(r["new"] + r["learn"] + r["review"]))
+    return out
 
 
 def _forecast(col, mature_days, include_dids):

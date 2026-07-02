@@ -24,6 +24,7 @@
  *     projection: [{ deck, mature, young, new, introPerDay, typicalDays,
  *                    samples, eta90Days, eta90Date, series:[{t, mature}],
  *                    milestones:[{pct, count, days, date}] }],
+ *     pending:  [{ deck, new, learn, review }],   // cards waiting today, per deck
  *   }
  */
 
@@ -302,7 +303,7 @@ export function buildAnki(raw, config) {
     allDecks: raw.allDecks || decks.map((d) => d.name),
     hourly: raw.hourly || [], forecast: raw.forecast || [], fsrs: raw.fsrs || {},
     records: raw.records || [], achievements: raw.achievements || [],
-    projection: raw.projection || [],
+    projection: raw.projection || [], pending: raw.pending || [],
     streakDays, totalSessions, matureCount, lifetimeCards,
     startOfWeek, trend, period, periodTotals, deckBoard, topDays, goals, avgWeekly,
     monthStats, monthSpan,
@@ -481,10 +482,20 @@ export function makeSampleRaw() {
     };
   });
 
+  // Cards waiting today, per deck — a plausible snapshot for the Pending card.
+  const pending = DECKS.map((d) => {
+    const review = Math.max(0, Math.round(150 * d.weight * noise(0.3)));
+    const newC = Math.max(0, Math.round(35 * d.weight * noise(0.5)));
+    const learn = Math.max(0, Math.round(review * 0.1 * noise(0.6)));
+    return { deck: d.name, new: newC, learn, review };
+  })
+    .filter((r) => r.new + r.learn + r.review > 0)
+    .sort((a, b) => (b.new + b.learn + b.review) - (a.new + a.learn + a.review));
+
   return {
     today: TODAY,
     decks: DECKS.map((d) => ({ name: d.name, retain: d.retain })),
     allDecks: DECKS.map((d) => d.name),
-    days, hourly, forecast, fsrs, records, achievements, projection,
+    days, hourly, forecast, fsrs, records, achievements, projection, pending,
   };
 }

@@ -52,15 +52,24 @@ def compute_raw(cfg, force=False):
         return None
     key = _cache_key(cfg)
     if not force and _cache["key"] == key and _cache["raw"] is not None:
-        return _cache["raw"]
+        raw = _cache["raw"]
+    else:
+        try:
+            from . import data
+            raw = data.build_dataset(mw.col, cfg)
+        except Exception as e:  # never let a query error take down the UI
+            print("Recall: real-data build failed, using sample —", repr(e))
+            return None
+        _cache["key"] = key
+        _cache["raw"] = raw
+    # "Pending today" is clock-sensitive: cards fall due and daily limits reset at
+    # rollover with no DB write, so the mod-time cache above would serve it stale.
+    # Refresh just this section on every call — it's a single cheap backend query.
     try:
         from . import data
-        raw = data.build_dataset(mw.col, cfg)
-    except Exception as e:  # never let a query error take down the UI
-        print("Recall: real-data build failed, using sample —", repr(e))
-        return None
-    _cache["key"] = key
-    _cache["raw"] = raw
+        raw["pending"] = data._pending(mw.col, data._deck_filter_dids(mw.col, cfg))
+    except Exception as e:
+        print("Recall: pending refresh failed —", repr(e))
     return raw
 
 
