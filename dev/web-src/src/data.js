@@ -14,13 +14,9 @@
  *     decks: [{ name, retain }],
  *     days:  [{ date:<epoch ms>, dow, studied, reviews, newC, learning,
  *               relearning, total, timeSec, again, hard, good, easy,
- *               retention, deckSplit:{name:count}, mature }],
+ *               retention, deckSplit:{name:count} }],
  *     hourly:   [{ hour, pct, retention } × 24],
  *     forecast: [{ day, young, mature, total } × 30],
- *     fsrs:     { stability, difficulty, retrievability, mature, young,
- *                 retr:[{band, n} × 5] },
- *     records:  [{ label, value, unit, sub }],
- *     achievements: [{ name, desc, icon, got, progress? }],
  *     projection: [{ deck, mature, young, new, introPerDay, typicalDays,
  *                    samples, eta90Days, eta90Date, series:[{t, mature}],
  *                    milestones:[{pct, count, days, date}] }],
@@ -63,7 +59,7 @@ export function monthYearFull(d) {
 export const fmt = { fmtDur, fmtDurShort, compact, fmtDate, monYear, monthYearFull };
 
 // ============================ AGGREGATION ===============================
-// Attach helpers (trend/period/goals/deckBoard/streak) onto a raw dataset.
+// Attach helpers (trend/period/goals/streak) onto a raw dataset.
 export function buildAnki(raw, config) {
   const TODAY = new Date(raw.today);
   const days = raw.days.map((d) => ({ ...d, date: new Date(d.date) }));
@@ -159,17 +155,6 @@ export function buildAnki(raw, config) {
     };
   }
 
-  function deckBoard(range) {
-    const list = rangeList(range);
-    const rows = decks.map((d) => ({ name: d.name, retain: d.retain, cards: 0, time: 0 }));
-    rows.forEach((r) => {
-      r.cards = list.reduce((a, day) => a + ((day.deckSplit && day.deckSplit[r.name]) || 0), 0);
-      r.time = Math.round(r.cards * 9);
-    });
-    rows.sort((a, b) => b.cards - a.cards);
-    return rows;
-  }
-
   // ---- month in review -------------------------------------------------
   // Stats for one calendar month, addressed by offset from the current month
   // (0 = this month, -1 = last month, …). `monthSpan` is how many whole months
@@ -227,7 +212,7 @@ export function buildAnki(raw, config) {
   }
 
   // "You vs You" — your biggest study days, ranked by cards cleared (time breaks
-  // ties). All-time within the loaded window (same span the Records card uses).
+  // ties). All-time within the loaded window.
   function topDays(n = 5) {
     return days
       .filter((d) => d.studied)
@@ -253,8 +238,6 @@ export function buildAnki(raw, config) {
   }
   const streakDays = computeStreakDays();
   const totalSessions = days.filter((d) => d.studied).length;
-  const lifetimeCards = sumDays(days, "total");
-  const matureCount = (raw.fsrs && raw.fsrs.mature) || (days.length ? days[days.length - 1].mature : 0);
 
   // ---- goals (config-driven) ------------------------------------------
   // "day" scales from the weekly base by 1/7, exactly how month/year scale up.
@@ -301,11 +284,10 @@ export function buildAnki(raw, config) {
   return {
     TODAY, days, decks,
     allDecks: raw.allDecks || decks.map((d) => d.name),
-    hourly: raw.hourly || [], forecast: raw.forecast || [], fsrs: raw.fsrs || {},
-    records: raw.records || [], achievements: raw.achievements || [],
+    hourly: raw.hourly || [], forecast: raw.forecast || [],
     projection: raw.projection || [], pending: raw.pending || [],
-    streakDays, totalSessions, matureCount, lifetimeCards,
-    startOfWeek, trend, period, periodTotals, deckBoard, topDays, goals, avgWeekly,
+    streakDays, totalSessions,
+    startOfWeek, trend, period, periodTotals, topDays, goals, avgWeekly,
     monthStats, monthSpan,
     fmt,
   };
@@ -373,13 +355,6 @@ export function makeSampleRaw() {
     days.push({ date: dateMs, dow, studied, reviews, newC, learning, relearning, total, timeSec, again, hard, good, easy, retention, deckSplit });
   }
 
-  let mature = 1800;
-  days.forEach((d) => {
-    mature += d.studied ? Math.round(d.newC * 0.55 + d.reviews * 0.012) : -2;
-    d.mature = mature;
-  });
-  const matureCount = mature;
-
   const hourShape = [
     1, 0.5, 0.3, 0.2, 0.4, 1.2, 3.5, 6.5, 7.2, 5.0, 3.6, 3.2,
     3.8, 3.0, 2.6, 2.8, 3.4, 4.2, 5.8, 7.8, 8.6, 6.4, 3.8, 2.0,
@@ -397,58 +372,6 @@ export function makeSampleRaw() {
     const matureDue = Math.max(0, Math.round(base * (0.58 + k * 0.004)));
     forecast.push({ day: k, young, mature: matureDue, total: young + matureDue });
   }
-
-  const sumDays = (list, key) => list.reduce((a, d) => a + (d[key] || 0), 0);
-  const bestDay = days.reduce((a, d) => (d.total > a.total ? d : a), days[0]);
-  const bestTimeDay = days.reduce((a, d) => (d.timeSec > a.timeSec ? d : a), days[0]);
-  let longest = 0, run = 0;
-  days.forEach((d) => { if (d.studied) { run++; longest = Math.max(longest, run); } else run = 0; });
-  const lifetimeCards = sumDays(days, "total");
-  const lifetimeTime = sumDays(days, "timeSec");
-  let rev = 0, again2 = 0;
-  days.forEach((d) => { rev += d.reviews; again2 += d.again; });
-  const lifetimeRetention = rev > 0 ? (rev - again2) / rev : 0;
-  const D = (ms) => fmtDate(new Date(ms));
-
-  const records = [
-    { label: "Best day", value: bestDay.total.toLocaleString(), unit: "cards", sub: D(bestDay.date) },
-    { label: "Longest streak", value: longest.toLocaleString(), unit: "days", sub: "all-time" },
-    { label: "Most time / day", value: fmtDur(bestTimeDay.timeSec), unit: "", sub: D(bestTimeDay.date) },
-    { label: "Lifetime cards", value: compact(lifetimeCards), unit: "reviews", sub: "since " + D(startMs) },
-    { label: "Lifetime focus", value: Math.round(lifetimeTime / 3600).toLocaleString(), unit: "hours", sub: "total study" },
-    { label: "True retention", value: Math.round(lifetimeRetention * 100) + "%", unit: "", sub: "all-time avg" },
-  ];
-
-  let s = 0;
-  for (let i = days.length - 1; i >= 0; i--) { if (days[i].studied) s++; else break; }
-  const streakDays = s;
-
-  const fsrs = {
-    stability: 64, difficulty: 0.31, retrievability: 0.91,
-    mature: matureCount, young: Math.round(matureCount * 0.46),
-    retr: [
-      { band: "<70%", n: 420 },
-      { band: "70–80%", n: 690 },
-      { band: "80–90%", n: 2050 },
-      { band: "90–95%", n: 3120 },
-      { band: "95%+", n: 2480 },
-    ],
-  };
-
-  const achievements = [
-    { name: "Century", desc: "100-day streak", icon: "flame", got: true },
-    { name: "Year One", desc: "365 days studied", icon: "calendar", got: true },
-    { name: "10k Club", desc: "10,000 reviews", icon: "layers", got: true },
-    { name: "Early Bird", desc: "50 sessions before 8am", icon: "sun", got: true },
-    { name: "Polyglot", desc: "5 active decks", icon: "globe", got: true },
-    { name: "Sharpshooter", desc: "95% week retention", icon: "target", got: true },
-    { name: "Marathon", desc: "500 cards in a day", icon: "bolt", got: true },
-    { name: "Iron Will", desc: "365-day streak", icon: "shield", got: streakDays >= 365 },
-    { name: "Master", desc: "10,000 mature cards", icon: "crown", got: matureCount >= 10000 },
-    { name: "Night Owl", desc: "100 late sessions", icon: "moon", got: false, progress: 0.62 },
-    { name: "Perfect Month", desc: "30 days, 90%+ each", icon: "star", got: false, progress: 0.8 },
-    { name: "Lifer", desc: "100k lifetime reviews", icon: "infinity", got: lifetimeCards >= 100000 },
-  ];
 
   // Maturity projection per deck: a plausible easing curve from today's mature
   // count up to the 90% target, like data.py's empirical projection produces.
@@ -496,6 +419,6 @@ export function makeSampleRaw() {
     today: TODAY,
     decks: DECKS.map((d) => ({ name: d.name, retain: d.retain })),
     allDecks: DECKS.map((d) => d.name),
-    days, hourly, forecast, fsrs, records, achievements, projection, pending,
+    days, hourly, forecast, projection, pending,
   };
 }

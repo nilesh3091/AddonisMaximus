@@ -22,11 +22,7 @@ export const SECTIONS = [
   { key: "forecast", label: "Forecast", icon: "calendar" },
   { key: "answerButtons", label: "Answer buttons", icon: "gauge" },
   { key: "hourly", label: "When you study best", icon: "clock" },
-  { key: "fsrs", label: "Memory strength (FSRS)", icon: "brain" },
-  { key: "deckBoard", label: "Deck leaderboard", icon: "trophy" },
   { key: "bestDays", label: "You vs You (best days)", icon: "bolt" },
-  { key: "records", label: "Personal records", icon: "crown" },
-  { key: "achievements", label: "Achievements", icon: "star" },
   { key: "maturity", label: "Deck maturity ETA", icon: "seedling" },
 ];
 

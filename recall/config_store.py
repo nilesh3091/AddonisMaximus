@@ -15,8 +15,7 @@ CONFIG_VERSION = 1
 
 SECTION_KEYS = [
     "goals", "activity", "overview", "month", "streak", "pending", "forecast",
-    "answerButtons", "hourly", "fsrs", "deckBoard", "bestDays", "records",
-    "achievements", "maturity",
+    "answerButtons", "hourly", "bestDays", "maturity",
 ]
 
 DEFAULT_CONFIG: Dict[str, Any] = {

@@ -3,15 +3,15 @@ real Anki collection.
 
 `raw` contract (mirror of data.js):
   { today, decks:[{name,retain}], days:[{date,dow,studied,reviews,newC,learning,
-    relearning,total,timeSec,again,hard,good,easy,retention,deckSplit,mature}],
-    hourly, forecast, fsrs, records, achievements,
+    relearning,total,timeSec,again,hard,good,easy,retention,deckSplit}],
+    hourly, forecast,
     projection:[{deck,mature,young,new,introPerDay,typicalDays,samples,
                  eta90Days,eta90Date,series:[{t,mature}],
                  milestones:[{pct,count,days,date}]}],
     pending:[{deck,new,learn,review}] }
 
-Each section is computed defensively — a failure in one (e.g. an unusual FSRS
-state) degrades that section rather than taking down the whole window.
+Each section is computed defensively — a failure in one (e.g. an unusual
+scheduler state) degrades that section rather than taking down the whole window.
 """
 from __future__ import annotations
 
@@ -24,19 +24,6 @@ N_DAYS = 365 * 3 + 30  # ~3 years of daily history for the trend/calendar
 
 # revlog.type: 0 learn · 1 review · 2 relearn · 3 filtered/cram · 4 manual (no answer)
 REVLOG_STUDY_TYPES = (0, 1, 2, 3)
-# FSRS forgetting curve. Decay is read per-card from cards.data ($.decay, present
-# on FSRS-6 collections); this is the fallback when a card stores none (FSRS-4.5/5,
-# where -0.5 is exact). The recall-band breakdown assumes the stored/default decay
-# and is a coarse approximation for heavily-overdue cards.
-_FSRS_DECAY = -0.5
-
-
-def _power_forgetting_curve(t: float, s: float, decay: float = _FSRS_DECAY) -> float:
-    if s <= 0:
-        return 0.0
-    factor = 0.9 ** (1.0 / decay) - 1.0
-    r = (1.0 + factor * t / s) ** decay
-    return max(0.0, min(1.0, r))
 
 
 # ---------------------------------------------------------------- helpers
@@ -50,25 +37,6 @@ def _civil_utc_midnight_ms(end_sec: int) -> int:
 
 def _top_deck(name: str) -> str:
     return name.split("::", 1)[0] if name else "Default"
-
-
-def _fmt_dur(sec: int) -> str:
-    h, m = sec // 3600, round((sec % 3600) / 60)
-    return f"{h}h {m:02d}m" if h else f"{m}m"
-
-
-def _fmt_day(ms: int) -> str:
-    """Portable 'Jun 4, 2026' (avoids the non-Windows %-d strftime token)."""
-    dt = datetime.datetime.utcfromtimestamp(ms / 1000)
-    return f"{dt.strftime('%b')} {dt.day}, {dt.year}"
-
-
-def _compact(n: float) -> str:
-    if n >= 1e6:
-        return f"{n/1e6:.1f}M"
-    if n >= 1e3:
-        return f"{n/1e3:.1f}k"
-    return str(int(n))
 
 
 def _deck_filter_dids(col, cfg) -> set | None:
@@ -132,7 +100,7 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
             "date": _civil_utc_midnight_ms(end), "dow": dow, "studied": False,
             "reviews": 0, "newC": 0, "learning": 0, "relearning": 0, "total": 0,
             "timeSec": 0.0, "again": 0, "hard": 0, "good": 0, "easy": 0,
-            "retention": 0.0, "deckSplit": {}, "mature": 0,
+            "retention": 0.0, "deckSplit": {},
         })
 
     deck_totals: Dict[str, int] = {}
@@ -213,9 +181,6 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
 
     forecast = guard(lambda: _forecast(col, mature_days, include_dids),
                      [{"day": k, "young": 0, "mature": 0, "total": 0} for k in range(30)])
-    fsrs = guard(lambda: _fsrs(col, mature_days, include_dids), _fsrs_fallback())
-    records = guard(lambda: _records(col, days), [])
-    achievements = guard(lambda: _achievements(col, days, fsrs, decks), [])
     projection = guard(lambda: _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_suspended), [])
     pending = guard(lambda: _pending(col, include_dids), [])
 
@@ -226,7 +191,7 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "today": today_ms, "decks": decks, "allDecks": all_decks, "days": days, "hourly": hourly,
-        "forecast": forecast, "fsrs": fsrs, "records": records, "achievements": achievements,
+        "forecast": forecast,
         "projection": projection, "pending": pending,
     }
 
@@ -401,135 +366,3 @@ def _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_sus
         })
     out.sort(key=lambda r: -(r["mature"] + r["young"] + r["new"]))
     return out
-
-
-def _fsrs_fallback():
-    return {
-        "stability": 0, "difficulty": 0.0, "retrievability": 0.0, "mature": 0, "young": 0,
-        "retr": [{"band": b, "n": 0} for b in ("<70%", "70–80%", "80–90%", "90–95%", "95%+")],
-    }
-
-
-def _fsrs(col, mature_days, include_dids):
-    today = col.sched.today
-    extra, params = _deck_where(include_dids)
-    mature = col.db.scalar(f"SELECT count() FROM cards WHERE queue=2 AND ivl>=?{extra}", mature_days, *params) or 0
-    young = col.db.scalar(
-        f"SELECT count() FROM cards WHERE ((queue=2 AND ivl<?) OR queue IN (1,3)){extra}", mature_days, *params
-    ) or 0
-
-    # Per-card FSRS memory state from the cards.data JSON (fast, bulk).
-    true_due = "CASE WHEN odid==0 THEN due ELSE odue END"
-    rows = col.db.all(
-        f"""SELECT {true_due} AS true_due, ivl,
-                   json_extract(data,'$.s') AS s, json_extract(data,'$.d') AS d,
-                   json_extract(data,'$.decay') AS decay
-            FROM cards
-            WHERE queue=2 AND data!='' AND json_extract(data,'$.s') IS NOT NULL{extra}""",
-        *params,
-    )
-
-    bands = [0, 0, 0, 0, 0]  # <70, 70-80, 80-90, 90-95, >=95
-    s_sum = d_sum = r_sum = 0.0
-    n = d_n = 0
-    if rows:
-        for true_due, ivl, s, d, decay in rows:
-            try:
-                s = float(s)
-                td = int(true_due)
-            except (TypeError, ValueError):
-                continue
-            # A filtered deck can leave a non-positive odue; that would read as a
-            # huge elapsed and mis-score the card as forgotten, so drop those rows.
-            if td <= 0:
-                continue
-            elapsed = max(0, today - (td - int(ivl or 0)))
-            try:
-                dec = float(decay)
-            except (TypeError, ValueError):
-                dec = _FSRS_DECAY
-            r = _power_forgetting_curve(elapsed, s, dec)
-            n += 1
-            s_sum += s
-            r_sum += r
-            if d is not None:
-                d_sum += (float(d) - 1.0) / 9.0
-                d_n += 1
-            if r < 0.70:
-                bands[0] += 1
-            elif r < 0.80:
-                bands[1] += 1
-            elif r < 0.90:
-                bands[2] += 1
-            elif r < 0.95:
-                bands[3] += 1
-            else:
-                bands[4] += 1
-
-    if n:
-        stability = int(round(s_sum / n))
-        difficulty = d_sum / d_n if d_n else 0.0
-        retrievability = r_sum / n
-    else:
-        # FSRS off / no memory state — fall back to interval-based stand-ins.
-        stability = int(round(col.db.scalar(f"SELECT avg(ivl) FROM cards WHERE queue=2{extra}", *params) or 0))
-        # Honor the same deck filter the rest of this function applies (join for did).
-        life_rev = col.db.scalar(
-            f"SELECT count() FROM revlog JOIN cards ON cards.id=revlog.cid "
-            f"WHERE revlog.type IN (1,2){extra}", *params) or 0
-        life_again = col.db.scalar(
-            f"SELECT count() FROM revlog JOIN cards ON cards.id=revlog.cid "
-            f"WHERE revlog.type IN (1,2) AND revlog.ease=1{extra}", *params) or 0
-        difficulty = 0.0
-        retrievability = (life_rev - life_again) / life_rev if life_rev else 0.0
-        bands[4] = int(mature)  # no per-card recall available
-
-    labels = ("<70%", "70–80%", "80–90%", "90–95%", "95%+")
-    return {
-        "stability": stability, "difficulty": difficulty, "retrievability": retrievability,
-        "mature": int(mature), "young": int(young),
-        "retr": [{"band": labels[i], "n": bands[i]} for i in range(5)],
-    }
-
-
-def _records(col, days):
-    best = max(days, key=lambda d: d["total"])
-    best_time = max(days, key=lambda d: d["timeSec"])
-    longest = run = 0
-    for d in days:
-        if d["studied"]:
-            run += 1
-            longest = max(longest, run)
-        else:
-            run = 0
-    life_cards = col.db.scalar("SELECT count() FROM revlog WHERE type IN (0,1,2,3)") or 0
-    life_time = (col.db.scalar("SELECT sum(time) FROM revlog") or 0) / 1000.0
-    life_rev = col.db.scalar("SELECT count() FROM revlog WHERE type IN (1,2)") or 0
-    life_again = col.db.scalar("SELECT count() FROM revlog WHERE type IN (1,2) AND ease=1") or 0
-    life_ret = (life_rev - life_again) / life_rev if life_rev else 0
-    return [
-        {"label": "Best day", "value": f"{best['total']:,}", "unit": "cards", "sub": _fmt_day(best["date"])},
-        {"label": "Longest streak", "value": f"{longest:,}", "unit": "days", "sub": "all-time"},
-        {"label": "Most time / day", "value": _fmt_dur(best_time["timeSec"]), "unit": "", "sub": _fmt_day(best_time["date"])},
-        {"label": "Lifetime cards", "value": _compact(life_cards), "unit": "reviews", "sub": "all-time"},
-        {"label": "Lifetime focus", "value": f"{round(life_time/3600):,}", "unit": "hours", "sub": "total study"},
-        {"label": "True retention", "value": f"{round(life_ret*100)}%", "unit": "", "sub": "all-time avg"},
-    ]
-
-
-def _achievements(col, days, fsrs, decks):
-    streak = 0
-    for d in reversed(days):
-        if d["studied"]:
-            streak += 1
-        else:
-            break
-    life_cards = col.db.scalar("SELECT count() FROM revlog WHERE type IN (0,1,2,3)") or 0
-    return [
-        {"name": "Century", "desc": "100-day streak", "icon": "flame", "got": streak >= 100},
-        {"name": "10k Club", "desc": "10,000 reviews", "icon": "layers", "got": life_cards >= 10000},
-        {"name": "Polyglot", "desc": "5 active decks", "icon": "globe", "got": len(decks) >= 5},
-        {"name": "Iron Will", "desc": "365-day streak", "icon": "shield", "got": streak >= 365},
-        {"name": "Master", "desc": "10,000 mature cards", "icon": "crown", "got": fsrs.get("mature", 0) >= 10000},
-        {"name": "Lifer", "desc": "100k lifetime reviews", "icon": "infinity", "got": life_cards >= 100000},
-    ]

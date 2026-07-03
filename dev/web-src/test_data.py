@@ -50,14 +50,9 @@ class FakeDB:
             return rows
         if "due BETWEEN" in sql:             # forecast
             return [(TODAY + k % 30, 30 if k % 3 else 5) for k in range(60)]
-        if "json_extract" in sql:            # FSRS per-card (true_due, ivl, s, d, decay)
-            return [(TODAY + (i % 20) - 10, 15, 30.0 + i, 5.0, (-0.2 if i % 2 else None)) for i in range(50)]
         return []
 
     def scalar(self, sql, *params):
-        if "ivl>=" in sql: return 1200
-        if "ivl<" in sql: return 400
-        if "avg(ivl)" in sql: return 42.0
         if "type IN (0,1,2,3)" in sql: return 53000
         if "sum(time)" in sql: return 9000 * 60 * 1000
         if "type IN (1,2) AND ease=1" in sql: return 4000
@@ -96,13 +91,11 @@ cfg = {"data": {"matureThresholdDays": 21, "cutoffHour": None, "includeDecks": [
 raw = data.build_dataset(FakeCol(), cfg)
 
 # ---- assertions ----
-assert set(raw) == {"today", "decks", "allDecks", "days", "hourly", "forecast", "fsrs", "records", "achievements", "projection", "pending"}, raw.keys()
+assert set(raw) == {"today", "decks", "allDecks", "days", "hourly", "forecast", "projection", "pending"}, raw.keys()
 assert isinstance(raw["allDecks"], list) and all(isinstance(n, str) for n in raw["allDecks"]), raw["allDecks"]
 assert len(raw["days"]) == data.N_DAYS, len(raw["days"])
 assert len(raw["hourly"]) == 24
 assert len(raw["forecast"]) == 30
-assert len(raw["fsrs"]["retr"]) == 5
-assert len(raw["records"]) == 6
 
 studied = [d for d in raw["days"] if d["studied"]]
 assert studied, "no studied days"
@@ -113,13 +106,6 @@ assert d0["reviews"] + d0["learning"] + d0["relearning"] == 12, d0
 assert d0["timeSec"] > 0
 # answer-button retention sane
 assert 0 <= d0["retention"] <= 1, d0["retention"]
-
-# FSRS bands sum to the number of FSRS cards (50)
-bands = sum(b["n"] for b in raw["fsrs"]["retr"])
-assert bands == 50, bands
-assert 0 <= raw["fsrs"]["difficulty"] <= 1, raw["fsrs"]["difficulty"]
-assert 0 <= raw["fsrs"]["retrievability"] <= 1, raw["fsrs"]["retrievability"]
-assert raw["fsrs"]["mature"] == 1200
 
 # deck split present + retention computed per deck
 assert raw["decks"], "no decks"
@@ -160,53 +146,7 @@ raw_jp = data.build_dataset(FakeCol(), {"data": {"matureThresholdDays": 21, "cut
                                                  "includeDecks": ["日本語 Core"], "streakMinCards": 1}})
 assert [r["deck"] for r in raw_jp["pending"]] == ["日本語 Core"], raw_jp["pending"]
 
-# ---- FSRS math invariants (locked in by the data.py audit) ----
-# factor anchor: 0.9**(1/decay)-1 == 19/81 for the default decay -0.5
-assert abs((0.9 ** (1.0 / -0.5) - 1.0) - 19 / 81) < 1e-15
-# R(0)=1 and R(S)=0.9 hold for any decay (stability is the 90%-retention point)
-for dec in (-0.5, -0.2, -0.1, -0.8):
-    for S in (1, 10, 100, 365):
-        assert abs(data._power_forgetting_curve(0, S, dec) - 1.0) < 1e-12, (S, dec)
-        assert abs(data._power_forgetting_curve(S, S, dec) - 0.9) < 1e-12, (S, dec)
-assert data._power_forgetting_curve(10, 0) == 0.0           # s<=0 guard
-assert 0.0 <= data._power_forgetting_curve(1e6, 10) <= 1.0  # clamp holds, value tiny
-# more elapsed -> lower recall
-r_fresh = data._power_forgetting_curve(0, 100)
-r_old = data._power_forgetting_curve(200, 100)
-assert abs(r_fresh - 1.0) < 1e-9 and r_old < r_fresh < 1.0001
-
-# ---- regression tests for the audited FSRS fixes ----
-class _FsrsDB:
-    def __init__(self, rows): self._rows = rows
-    def all(self, sql, *p): return self._rows if "json_extract" in sql else []
-    def scalar(self, sql, *p): return 0
-
-class _FsrsCol:
-    def __init__(self, rows):
-        self.sched = FakeSched(); self.db = _FsrsDB(rows)
-
-# a non-positive true_due (e.g. negative odue from a filtered deck) is skipped,
-# not scored as a forgotten card in the <70% band.
-f2 = data._fsrs(_FsrsCol([(1000, 10, 50.0, 5.0, None),      # healthy
-                          (-50, 10, 50.0, 5.0, None)]),     # bogus -> drop
-                21, None)
-assert sum(b["n"] for b in f2["retr"]) == 1, f2["retr"]
-
-# difficulty averages only over cards that have $.d (not every stability card).
-f3 = data._fsrs(_FsrsCol([(1000, 10, 50.0, 1.0, None),      # d=1  -> 0.0
-                          (1000, 10, 50.0, 10.0, None),     # d=10 -> 1.0
-                          (1000, 10, 50.0, None, None)]),   # no d -> excluded
-                21, None)
-assert abs(f3["difficulty"] - 0.5) < 1e-9, f3["difficulty"]  # (0+1)/2, not /3
-
-# per-card $.decay is honored when present (FSRS-6), else falls back to -0.5.
-f4 = data._fsrs(_FsrsCol([(1000, 10, 50.0, 5.0, -0.2)]), 21, None)
-assert 0.0 <= f4["retrievability"] <= 1.0, f4["retrievability"]
-
 import json
 print("days:", len(raw["days"]), "| today total:", d0["total"], "| decks:", [d["name"] for d in raw["decks"]])
-print("fsrs:", {k: raw["fsrs"][k] for k in ("stability", "difficulty", "retrievability", "mature")})
-print("bands:", [(b["band"], b["n"]) for b in raw["fsrs"]["retr"]])
-print("records[0]:", raw["records"][0])
 print("approx JSON payload size:", round(len(json.dumps(raw)) / 1024), "KB")
 print("\nALL ASSERTIONS PASSED ✓")
