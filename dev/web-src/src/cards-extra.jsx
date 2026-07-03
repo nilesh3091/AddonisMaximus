@@ -2,7 +2,7 @@
    Pending today. `compact` shrinks sizes for the carousel. */
 import React from "react";
 import { Icon } from "./icons.jsx";
-import { Bars, useBox } from "./charts.jsx";
+import { Bars, useBox, useMeasure } from "./charts.jsx";
 
 const DECK_COLORS = [
   "var(--accent)",
@@ -217,6 +217,7 @@ export function BestDaysCard({ anki, compact }) {
 // user's own history. Display-only choice — switching never rescans data.
 export function MaturityCard({ anki, config, setConfig, compact }) {
   const fmt = anki.fmt;
+  const [barRef, barW] = useMeasure();   // measure the bar so it can render as SVG
   const list = anki.projection || [];
   // Offer every deck in the collection — not just the ones the projection could
   // model — so the chooser is always usable and never collapses to static text
@@ -338,42 +339,40 @@ export function MaturityCard({ anki, config, setConfig, compact }) {
         </div>
         {suspToggle}
 
-        {/* Maturity progress — a left-to-right bar (0 → 100% mature). A big "now"
-            dot marks where you are; the 25/50/75/90% checkpoints are dots at their
-            true positions, filled once passed. Always reads from the left. */}
+        {/* Maturity progress — drawn as an SVG (not a %-width div) so the carousel's
+            CSS zoom can't mis-size the fill in Anki's webview. A big "now" dot marks
+            where you are; the 25/50/75/90% checkpoints are dots at their true
+            positions, filled once passed. Always reads from the left. */}
         {(() => {
-          const barH = compact ? 8 : 10;
-          const mdot = compact ? 12 : 14;      // milestone dot
-          const ndot = compact ? 17 : 20;      // current "now" dot
-          const curAt = Math.max(0, Math.min(100, pct));   // fill width
-          const dotAt = Math.max(1.5, Math.min(98.5, curAt)); // keep the now dot on-track
+          const svgH = compact ? 22 : 26;
+          const cy = svgH / 2;
+          const thick = compact ? 8 : 10;     // bar thickness
+          const mR = compact ? 6 : 7;         // milestone dot radius
+          const nR = compact ? 8.5 : 10;      // "now" dot radius
+          const W = Math.max(barW, 60);
+          const curAt = Math.max(0, Math.min(100, pct));       // fill %
+          const dotAt = Math.max(2, Math.min(98, curAt));      // keep the now dot on-track
+          const xAt = (v) => (W * v) / 100;
           const ticks = marks.slice(1);        // 25 / 50 / 75 / 90
           return (
             <div style={{ margin: compact ? "16px 0 2px" : "22px 0 4px" }}>
-              <div style={{ position: "relative", height: ndot + 4 }}>
-                {/* track + fill (thin, centred) */}
-                <div style={{ position: "absolute", left: 0, right: 0, top: "50%", transform: "translateY(-50%)", height: barH, background: "var(--card2)", borderRadius: 999, overflow: "hidden" }}>
-                  <div style={{ width: curAt + "%", height: "100%", background: "linear-gradient(90deg, var(--accent2), var(--accent))" }} />
-                </div>
-                {/* milestone dots at their true positions — filled once reached */}
-                {ticks.map((m) => {
-                  const at = parseInt(m.label, 10);
-                  return (
-                    <span key={m.label} style={{
-                      position: "absolute", left: at + "%", top: "50%", transform: "translate(-50%,-50%)",
-                      width: mdot, height: mdot, borderRadius: "50%", boxSizing: "border-box",
-                      background: m.here ? "var(--accent)" : "var(--card)",
-                      border: "2px solid " + (m.here ? "var(--accent)" : "var(--text3)"),
-                    }} />
-                  );
-                })}
-                {/* current-position "now" dot */}
-                <span style={{
-                  position: "absolute", left: dotAt + "%", top: "50%", transform: "translate(-50%,-50%)",
-                  width: ndot, height: ndot, borderRadius: "50%", boxSizing: "border-box",
-                  background: "var(--accent)", border: "3px solid var(--card)",
-                  boxShadow: "0 0 0 3px color-mix(in oklab, var(--accent) 32%, transparent)",
-                }} />
+              <div ref={barRef} style={{ width: "100%" }}>
+                {barW > 0 && (
+                  <svg width={W} height={svgH} style={{ display: "block", overflow: "visible" }}>
+                    {/* track + fill */}
+                    <rect x={0} y={cy - thick / 2} width={W} height={thick} rx={thick / 2} fill="var(--card2)" />
+                    <rect x={0} y={cy - thick / 2} width={xAt(curAt)} height={thick} rx={thick / 2} fill="var(--accent)" />
+                    {/* milestone dots — filled once reached */}
+                    {ticks.map((m) => (
+                      <circle key={m.label} cx={xAt(parseInt(m.label, 10))} cy={cy} r={mR}
+                        fill={m.here ? "var(--accent)" : "var(--card)"}
+                        stroke={m.here ? "var(--accent)" : "var(--text3)"} strokeWidth={2} />
+                    ))}
+                    {/* current-position "now" dot with a soft halo */}
+                    <circle cx={xAt(dotAt)} cy={cy} r={nR + 3} fill="color-mix(in oklab, var(--accent) 30%, transparent)" />
+                    <circle cx={xAt(dotAt)} cy={cy} r={nR} fill="var(--accent)" stroke="var(--card)" strokeWidth={3} />
+                  </svg>
+                )}
               </div>
               {/* labels: "now" under the current dot + the checkpoints */}
               <div style={{ position: "relative", height: compact ? 42 : 46, marginTop: 9 }}>
