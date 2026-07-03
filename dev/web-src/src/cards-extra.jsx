@@ -338,31 +338,63 @@ export function MaturityCard({ anki, config, setConfig, compact }) {
         </div>
         {suspToggle}
 
-        {/* Maturity progress — a plain left-to-right bar (0 → 100% mature). The
-            25/50/75/90% checkpoints sit at their TRUE positions, so the accent
-            fill always reads as "how far along you are", starting from the left. */}
-        <div style={{ margin: compact ? "14px 0 2px" : "20px 0 4px" }}>
-          <div style={{ position: "relative", height: compact ? 13 : 16, background: "var(--card2)", borderRadius: 999, overflow: "hidden" }}>
-            <div style={{ width: Math.max(0, Math.min(100, pct)) + "%", height: "100%", background: "linear-gradient(90deg, var(--accent2), var(--accent))", transition: "width .8s cubic-bezier(.2,.8,.2,1)" }} />
-            {marks.slice(1).map((m) => {
-              const at = parseInt(m.label, 10);
-              return <span key={m.label} style={{ position: "absolute", top: 0, bottom: 0, left: at + "%", width: 2, marginLeft: -1, background: m.here ? "color-mix(in oklab, #fff 60%, transparent)" : "var(--line)" }} />;
-            })}
-          </div>
-          {/* checkpoint labels under their ticks */}
-          <div style={{ position: "relative", height: compact ? 40 : 44, marginTop: 7 }}>
-            {marks.slice(1).map((m) => {
-              const at = parseInt(m.label, 10);
-              return (
-                <div key={m.label} style={{ position: "absolute", left: at + "%", transform: "translateX(-50%)", textAlign: "center", whiteSpace: "nowrap" }}>
-                  <div style={{ fontWeight: 800, fontSize: compact ? 12 : 13, color: m.here ? "var(--accent)" : "var(--text)" }}>{m.label}</div>
-                  <div className="num" style={{ fontSize: compact ? 11 : 12, color: "var(--text2)", marginTop: 2 }}>{fmt.compact(m.count)}</div>
-                  <div className="num" style={{ fontSize: compact ? 10.5 : 11.5, color: m.here ? "var(--accent)" : "var(--text3)", marginTop: 3 }}>{m.here ? "✓" : m.ms == null ? "—" : fmt.monYear(new Date(m.ms))}</div>
+        {/* Maturity progress — a left-to-right bar (0 → 100% mature). A big "now"
+            dot marks where you are; the 25/50/75/90% checkpoints are dots at their
+            true positions, filled once passed. Always reads from the left. */}
+        {(() => {
+          const barH = compact ? 8 : 10;
+          const mdot = compact ? 12 : 14;      // milestone dot
+          const ndot = compact ? 17 : 20;      // current "now" dot
+          const curAt = Math.max(0, Math.min(100, pct));   // fill width
+          const dotAt = Math.max(1.5, Math.min(98.5, curAt)); // keep the now dot on-track
+          const ticks = marks.slice(1);        // 25 / 50 / 75 / 90
+          return (
+            <div style={{ margin: compact ? "16px 0 2px" : "22px 0 4px" }}>
+              <div style={{ position: "relative", height: ndot + 4 }}>
+                {/* track + fill (thin, centred) */}
+                <div style={{ position: "absolute", left: 0, right: 0, top: "50%", transform: "translateY(-50%)", height: barH, background: "var(--card2)", borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ width: curAt + "%", height: "100%", background: "linear-gradient(90deg, var(--accent2), var(--accent))" }} />
                 </div>
-              );
-            })}
-          </div>
-        </div>
+                {/* milestone dots at their true positions — filled once reached */}
+                {ticks.map((m) => {
+                  const at = parseInt(m.label, 10);
+                  return (
+                    <span key={m.label} style={{
+                      position: "absolute", left: at + "%", top: "50%", transform: "translate(-50%,-50%)",
+                      width: mdot, height: mdot, borderRadius: "50%", boxSizing: "border-box",
+                      background: m.here ? "var(--accent)" : "var(--card)",
+                      border: "2px solid " + (m.here ? "var(--accent)" : "var(--text3)"),
+                    }} />
+                  );
+                })}
+                {/* current-position "now" dot */}
+                <span style={{
+                  position: "absolute", left: dotAt + "%", top: "50%", transform: "translate(-50%,-50%)",
+                  width: ndot, height: ndot, borderRadius: "50%", boxSizing: "border-box",
+                  background: "var(--accent)", border: "3px solid var(--card)",
+                  boxShadow: "0 0 0 3px color-mix(in oklab, var(--accent) 32%, transparent)",
+                }} />
+              </div>
+              {/* labels: "now" under the current dot + the checkpoints */}
+              <div style={{ position: "relative", height: compact ? 42 : 46, marginTop: 9 }}>
+                <div style={{ position: "absolute", left: dotAt + "%", transform: "translateX(-50%)", textAlign: "center", whiteSpace: "nowrap" }}>
+                  <div style={{ fontWeight: 800, fontSize: compact ? 12 : 13, color: "var(--accent)" }}>now</div>
+                  <div className="num" style={{ fontSize: compact ? 11 : 12, color: "var(--accent)", marginTop: 2 }}>{pct}%</div>
+                </div>
+                {ticks.map((m) => {
+                  const at = parseInt(m.label, 10);
+                  return (
+                    <div key={m.label} style={{ position: "absolute", left: at + "%", transform: "translateX(-50%)", textAlign: "center", whiteSpace: "nowrap" }}>
+                      <div style={{ fontWeight: 800, fontSize: compact ? 12 : 13, color: m.here ? "var(--accent)" : "var(--text)" }}>{m.label}</div>
+                      <div className="num" style={{ fontSize: compact ? 11 : 12, color: "var(--text2)", marginTop: 2 }}>{fmt.compact(m.count)}</div>
+                      <div className="num" style={{ fontSize: compact ? 10.5 : 11.5, color: m.here ? "var(--accent)" : "var(--text3)", marginTop: 3 }}>{m.here ? "✓" : m.ms == null ? "—" : fmt.monYear(new Date(m.ms))}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Start → 90% timeline ------------------------------------------ */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: compact ? 10 : 14, paddingTop: compact ? 12 : 14, borderTop: "1px solid var(--border)" }}>
