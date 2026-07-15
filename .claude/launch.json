@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "recall-web",
+      "name": "addonismaximus-web",
       "runtimeExecutable": "node",
       "runtimeArgs": ["dev/web-src/server.mjs"],
       "port": 8123

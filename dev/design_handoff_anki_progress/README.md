@@ -1,7 +1,7 @@
-# Handoff: Recall — Anki Progress (Strava-style study dashboard)
+# Handoff: Addonis Maximus (Strava-style study dashboard)
 
 ## Overview
-**Recall** is a "Progress" screen for an **Anki add-on** that reframes spaced-repetition study data as a Strava-style fitness dashboard. It shows goals, an activity trend, a study-streak calendar, a review forecast, answer-button breakdown, best-study-time histogram, FSRS memory-strength stats, a deck leaderboard, personal records, and achievements.
+**Addonis Maximus** is a "Progress" screen for an **Anki add-on** that reframes spaced-repetition study data as a Strava-style fitness dashboard. It shows goals, an activity trend, a study-streak calendar, a review forecast, answer-button breakdown, best-study-time histogram, FSRS memory-strength stats, a deck leaderboard, personal records, and achievements.
 
 The screen is dark, warm-near-black, with a signal-orange accent for data viz and **green** reserved for *progress completion* (goal rings, progress fills). It renders inside a faux Anki desktop top bar so it reads as a native add-on panel.
 
@@ -44,7 +44,7 @@ All colors are authored in **OKLCH**. Equivalent sRGB hex is given in parenthese
 | `--ring-track` | `oklch(1 0 0 / 0.09)` | `rgba(255,255,255,.09)` | unfilled portion of progress rings |
 | `--glow` | `oklch(0.69 0.196 42 / 0.32)` | — | accent glow shadow |
 
-> The other four themes (`midnight` blue, `aurora` teal, `violet` purple, `daylight` light) are defined in `Recall - Anki Progress.html` `<style>` if you want to port them — same token names, different values.
+> The other four themes (`midnight` blue, `aurora` teal, `violet` purple, `daylight` light) are defined in `Addonis Maximus.html` `<style>` if you want to port them — same token names, different values.
 
 ### Progress / status colors (NOT theme-dependent)
 These are fixed regardless of theme — they encode *meaning*, not branding.
@@ -57,8 +57,8 @@ These are fixed regardless of theme — they encode *meaning*, not branding.
 | `--good` | `oklch(0.72 0.16 150)` | `#36bd6a` | Answer button "Good" (green) |
 | `--easy` | `oklch(0.68 0.14 235)` | `#3d9bdb` | Answer button "Easy" (blue) |
 
-#### FSRS "Cards by predicted recall" heat scale (5 bars, low→high recall)
-This is an explicit red→green heat gradient. Order matters — bands run worst recall (top) to best (bottom):
+#### FSRS "Cards by predicted retention" heat scale (5 bars, low→high retention)
+This is an explicit red→green heat gradient. Order matters — bands run worst retention (top) to best (bottom):
 | Band | OKLCH | ~Hex | meaning |
 |---|---|---|---|
 | `<70%` | `oklch(0.62 0.21 25)` | `#df3b2b` | red — at-risk |
@@ -113,7 +113,7 @@ Desktop layout is a **12-column grid** (`--gap: 16px`), centered at `max-width: 
 | 5 | **Deck Leaderboard** (7) | **Personal Records** (5) |
 | 6 | **Achievements** (12) | — |
 
-**Top bar** (sticky, `--bg`): brand lockup ("Recall" with a brain-mark in an accent rounded square) · nav `Decks / Add / Browse / Progress` (Progress active) · right-aligned "⟳ Synced just now".
+**Top bar** (sticky, `--bg`): brand lockup ("Addonis Maximus" with a brain-mark in an accent rounded square) · nav `Decks / Add / Browse / Progress` (Progress active) · right-aligned "⟳ Synced just now".
 
 **Page header**: `<h1>Your Progress</h1>` with an inline streak pill (`🔥 N-day streak`, flame in accent), a subtitle, and a right-aligned **Week / Month / Year** range toggle (segmented; active segment has `--accent` bg, `--accent-ink` text).
 
@@ -159,8 +159,8 @@ The **range toggle drives most cards** — Goals, Activity headline+trend, Answe
 
 ### 7. Memory Strength / FSRS card (`FsrsCard`)
 - Header: brain icon + "MEMORY STRENGTH" with a tiny "FSRS" superscript + "N mature".
-- 3 inner tiles (`--card2`): Avg stability (days), Avg difficulty (%), Retrievability (% predicted recall) — each with an accent icon.
-- **"Cards by predicted recall"**: 5 horizontal progress bars, one per recall band, colored with the **red→dark-green heat scale** (see tokens). Each row: right-aligned band label · track bar · count. Bars animate width `.6s`.
+- 3 inner tiles (`--card2`): Avg stability (days), Avg difficulty (%), Retrievability (% predicted retention) — each with an accent icon.
+- **"Cards by predicted retention"**: 5 horizontal progress bars, one per retention band, colored with the **red→dark-green heat scale** (see tokens). Each row: right-aligned band label · track bar · count. Bars animate width `.6s`.
 
 ### 8. Deck Leaderboard card (`DeckBoardCard`)
 - Header: trophy icon + "DECK LEADERBOARD" + period label.
@@ -224,7 +224,7 @@ In production, replace all of the above's **data inputs** with real queries; the
 - **No raster images / logos** are used. The brand mark is an SVG brain glyph on an accent square.
 
 ## Files in this bundle
-- `Recall - Anki Progress.html` — entry point: all theme tokens + global CSS in `<style>`, mounts the React app, loads the scripts below. **Start here for the canonical CSS/tokens.**
+- `Addonis Maximus.html` — entry point: all theme tokens + global CSS in `<style>`, mounts the React app, loads the scripts below. **Start here for the canonical CSS/tokens.**
 - `app.jsx` — App shell: top bar, page header, range toggle, the 12-col grid wiring, and the (prototype-only) Tweaks panel.
 - `cards-core.jsx` — `GoalsCard`, `ActivityCard`, `StreakCard`.
 - `cards-extra.jsx` — `ForecastCard`, `AnswerButtonsCard`, `HourlyCard`, `FsrsCard`, `DeckBoardCard`, `RecordsCard`, `AchievementsCard`. Contains the FSRS heat-scale and deck-palette color arrays.
@@ -234,10 +234,10 @@ In production, replace all of the above's **data inputs** with real queries; the
 - `tweaks-panel.jsx` — prototype-only theme/chart toggles. **Not needed for production** unless you want a settings panel.
 
 ### How to run the prototype
-Open `Recall - Anki Progress.html` in a browser (it loads React + Babel from a CDN and transpiles the `.jsx` in-browser). For production, precompile JSX and bundle assets locally — do not rely on in-browser Babel or CDN React.
+Open `Addonis Maximus.html` in a browser (it loads React + Babel from a CDN and transpiles the `.jsx` in-browser). For production, precompile JSX and bundle assets locally — do not rely on in-browser Babel or CDN React.
 
 ## Notes for the implementer
-1. **Keep green for progress, orange for data.** Goal rings/icons and progress fills are green; charts, active states, and the CTA are orange. The FSRS recall bars use their own red→green heat scale. Don't unify these — the color split is intentional.
+1. **Keep green for progress, orange for data.** Goal rings/icons and progress fills are green; charts, active states, and the CTA are orange. The FSRS retention bars use their own red→green heat scale. Don't unify these — the color split is intentional.
 2. **Respect the limited add-on space.** The desktop grid is for review; the real panel likely needs the single-column reflow (collapse each card to full width, vertical scroll).
 3. **Replace all synthetic data** with real collection queries (revlog, scheduler, FSRS params). Match the data shapes documented above so the components need no structural changes.
 4. **No emoji**, stroke-only icons, OKLCH colors, two-font system. Numbers in Archivo, UI in Hanken Grotesk.

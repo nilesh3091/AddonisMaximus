@@ -1,6 +1,6 @@
 /* Entry point. Two mounts from one bundle:
    - window mode: full app in the page (light DOM, CSS in <head>).
-   - embed mode:  carousel in a shadow root on Anki's home screen, so Recall's
+   - embed mode:  carousel in a shadow root on Anki's home screen, so Addonis Maximus's
                   styles never leak into (or get clobbered by) Anki's page.
    The stylesheet is bundled as text and injected for whichever mount we use. */
 import React from "react";
@@ -11,10 +11,10 @@ import { EmbeddedApp } from "./embed.jsx";
 import { webBase, appMode } from "./config.js";
 
 function injectFonts() {
-  if (document.getElementById("recall-fonts")) return;
+  if (document.getElementById("addonismaximus-fonts")) return;
   const base = webBase();
   const s = document.createElement("style");
-  s.id = "recall-fonts";
+  s.id = "addonismaximus-fonts";
   s.textContent =
     `@font-face{font-family:"Archivo";src:url("${base}/fonts/Archivo.woff2") format("woff2");font-weight:100 900;font-display:swap;}` +
     `@font-face{font-family:"Hanken Grotesk";src:url("${base}/fonts/HankenGrotesk.woff2") format("woff2");font-weight:100 900;font-display:swap;}`;
@@ -40,10 +40,10 @@ function repositionEmbed(hostEl) {
 }
 
 function mountEmbed() {
-  let hostEl = document.getElementById("recall-embed");
+  let hostEl = document.getElementById("addonismaximus-embed");
   if (!hostEl) {
     hostEl = document.createElement("div");
-    hostEl.id = "recall-embed";
+    hostEl.id = "addonismaximus-embed";
     document.body.appendChild(hostEl);
   }
   if (hostEl.shadowRoot) return;
@@ -60,15 +60,15 @@ function mountEmbed() {
     repositionEmbed(hostEl);
     requestAnimationFrame(() => repositionEmbed(hostEl));
   } catch (e) {
-    hostEl.textContent = "Recall failed to load: " + (e && e.message ? e.message : e);
+    hostEl.textContent = "Addonis Maximus failed to load: " + (e && e.message ? e.message : e);
     hostEl.style.cssText = "color:#e8632a;font:13px sans-serif;padding:12px;";
   }
 }
 
 function mountWindow() {
-  if (!document.getElementById("recall-css")) {
+  if (!document.getElementById("addonismaximus-css")) {
     const st = document.createElement("style");
-    st.id = "recall-css";
+    st.id = "addonismaximus-css";
     st.textContent = cssText;
     document.head.appendChild(st);
   }

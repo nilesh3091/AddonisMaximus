@@ -1,4 +1,4 @@
-"""Home-screen embed: inject the Recall carousel into the deck browser (below
+"""Home-screen embed: inject the Addonis Maximus carousel into the deck browser (below
 the heatmap etc.) and bridge its settings/reload messages.
 
 The web app renders in 'embed' mode (a carousel inside a shadow root, so its
@@ -19,36 +19,36 @@ def _on_will_render(deck_browser, content) -> None:
         cfg = config_store.get_config()
         boot = core.bootstrap_json(cfg, "embed")
         content.stats += (
-            '<div id="recall-embed"></div>'
-            f"<script>window.__RECALL__ = {boot};</script>"
+            '<div id="addonismaximus-embed"></div>'
+            f"<script>window.__ADDONISMAXIMUS__ = {boot};</script>"
             f"<script src=\"{core.script_url()}\"></script>"
         )
     except Exception as e:
-        print("Recall: embed render failed —", repr(e))
+        print("Addonis Maximus: embed render failed —", repr(e))
 
 
 def _on_message(handled, message, context):
-    if not isinstance(message, str) or not message.startswith("recall:"):
+    if not isinstance(message, str) or not message.startswith("addonismaximus:"):
         return handled
     # The standalone dialog has its own bridge; let those messages pass through.
     try:
-        from .dialog import RecallDialog
-        if isinstance(context, RecallDialog):
+        from .dialog import AddonisMaximusDialog
+        if isinstance(context, AddonisMaximusDialog):
             return handled
     except Exception:
         pass
 
-    if message.startswith("recall:save:"):
+    if message.startswith("addonismaximus:save:"):
         try:
-            config_store.save_config(json.loads(message[len("recall:save:"):]))
+            config_store.save_config(json.loads(message[len("addonismaximus:save:"):]))
         except Exception as e:
-            print("Recall: save failed —", repr(e))
+            print("Addonis Maximus: save failed —", repr(e))
         return (True, None)
 
-    if message == "recall:reload":
+    if message == "addonismaximus:reload":
         raw = core.compute_raw(config_store.get_config(), force=True)
         if raw is not None and mw.web is not None:
-            mw.web.eval(f"window.recallSetData && window.recallSetData({json.dumps(raw)});")
+            mw.web.eval(f"window.addonismaximusSetData && window.addonismaximusSetData({json.dumps(raw)});")
         return (True, None)
 
     return handled

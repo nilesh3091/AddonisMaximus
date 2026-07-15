@@ -176,7 +176,7 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
         try:
             return fn()
         except Exception as e:
-            print("Recall: section failed, using fallback —", repr(e))
+            print("Addonis Maximus: section failed, using fallback —", repr(e))
             return fallback
 
     forecast = guard(lambda: _forecast(col, mature_days, include_dids),

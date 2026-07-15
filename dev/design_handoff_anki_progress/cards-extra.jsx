@@ -135,7 +135,7 @@ function HourlyCard() {
 }
 
 // ============================== FSRS ===================================
-// recall heat scale: <70% red → 70–80% orange → 80–90% yellow → 90–95% green → >95% dark green
+// retention heat scale: <70% red → 70–80% orange → 80–90% yellow → 90–95% green → >95% dark green
 const FSRS_BAR_COLORS = [
 "oklch(0.62 0.21 25)",
 "oklch(0.72 0.17 55)",
@@ -149,7 +149,7 @@ function FsrsCard() {
   const tiles = [
   { label: "Avg stability", value: f.stability, unit: "days", icon: "shield" },
   { label: "Avg difficulty", value: Math.round(f.difficulty * 100) + "%", unit: "lower=easier", icon: "gauge" },
-  { label: "Retrievability", value: Math.round(f.retrievability * 100) + "%", unit: "predicted recall", icon: "brain" }];
+  { label: "Retrievability", value: Math.round(f.retrievability * 100) + "%", unit: "predicted retention", icon: "brain" }];
 
   return (
     <div className="card">
@@ -166,7 +166,7 @@ function FsrsCard() {
           </div>
         )}
       </div>
-      <div className="label-sm" style={{ marginBottom: 10 }}>Cards by predicted recall</div>
+      <div className="label-sm" style={{ marginBottom: 10 }}>Cards by predicted retention</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {f.retr.map((r, i) =>
         <div key={r.band} style={{ display: "flex", alignItems: "center", gap: 12 }}>

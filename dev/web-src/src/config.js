@@ -1,10 +1,10 @@
 /* Config + host bridge.
  *
- * In Anki, Python injects `window.__RECALL__ = { config, data }` before the app
+ * In Anki, Python injects `window.__ADDONISMAXIMUS__ = { config, data }` before the app
  * boots and provides `pycmd` (AnkiWebView). We persist via the bridge:
- *   pycmd("recall:save:" + JSON.stringify(config))   -> Python writes config.json
- *   pycmd("recall:reload")                            -> Python recomputes data,
- *                                                        then calls window.recallSetData(json)
+ *   pycmd("addonismaximus:save:" + JSON.stringify(config))   -> Python writes config.json
+ *   pycmd("addonismaximus:reload")                            -> Python recomputes data,
+ *                                                        then calls window.addonismaximusSetData(json)
  *
  * In a plain browser (dev), there is no pycmd — we fall back to localStorage so
  * the panel is fully usable against sample data.
@@ -86,9 +86,9 @@ export function deepMerge(base, over) {
   return out;
 }
 
-const host = () => (typeof window !== "undefined" ? window.__RECALL__ : null);
+const host = () => (typeof window !== "undefined" ? window.__ADDONISMAXIMUS__ : null);
 const hasBridge = () => typeof window !== "undefined" && typeof window.pycmd === "function";
-const LS_KEY = "recall.config";
+const LS_KEY = "addonismaximus.config";
 
 export function loadConfig() {
   let stored = null;
@@ -110,7 +110,7 @@ export function loadConfig() {
 
 export function saveConfig(cfg) {
   if (hasBridge()) {
-    window.pycmd("recall:save:" + JSON.stringify(cfg));
+    window.pycmd("addonismaximus:save:" + JSON.stringify(cfg));
   } else if (typeof localStorage !== "undefined") {
     try { localStorage.setItem(LS_KEY, JSON.stringify(cfg)); } catch (_) {}
   }
@@ -124,12 +124,12 @@ export function getInitialData() {
 
 // Ask Python to recompute the dataset (e.g. after a data-scope change).
 export function requestReload() {
-  if (hasBridge()) window.pycmd("recall:reload");
+  if (hasBridge()) window.pycmd("addonismaximus:reload");
 }
 
 // Register a callback for when Python pushes a fresh dataset.
 export function onData(cb) {
-  if (typeof window !== "undefined") window.recallSetData = (raw) => cb(raw);
+  if (typeof window !== "undefined") window.addonismaximusSetData = (raw) => cb(raw);
 }
 
 // Absolute base path for bundled assets (fonts). Anki injects an absolute
@@ -147,7 +147,7 @@ export function appMode() {
   if (typeof location !== "undefined" && new URLSearchParams(location.search).get("embed")) return "embed";
   // dev-only: persist a preview mode so the browser preview can show the embed.
   try {
-    if (typeof localStorage !== "undefined" && localStorage.getItem("recall.preview") === "embed") return "embed";
+    if (typeof localStorage !== "undefined" && localStorage.getItem("addonismaximus.preview") === "embed") return "embed";
   } catch (_) {}
   return "window";
 }

@@ -6,12 +6,12 @@ __pycache__/
 *.pyc
 
 # anki dev artifacts
-recall/meta.json
-recall/recall.log
+addonismaximus/meta.json
+addonismaximus/addonismaximus.log
 
 # os
 .DS_Store
 
-# publish artifacts (staging copy of recall/ + packaged zip)
+# publish artifacts (staging copy of addonismaximus/ + packaged zip)
 upload/
 upload.zip

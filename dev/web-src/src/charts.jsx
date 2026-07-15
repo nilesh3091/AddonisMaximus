@@ -215,7 +215,10 @@ export function niceCeil(v) {
   if (v <= 0) return 1;
   const mag = Math.pow(10, Math.floor(Math.log10(v)));
   const f = v / mag;
-  const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+  // Finer ladder so the axis hugs the data. The old {1,2,2.5,5,10} set left a
+  // big gap after 2.5 — a 2.6k peak jumped to a 5k ceiling, flattening the plot.
+  const nice = f <= 1 ? 1 : f <= 1.5 ? 1.5 : f <= 2 ? 2 : f <= 2.5 ? 2.5
+             : f <= 3 ? 3 : f <= 4 ? 4 : f <= 5 ? 5 : f <= 6 ? 6 : f <= 8 ? 8 : 10;
   return nice * mag;
 }
 
@@ -267,6 +270,65 @@ export function Bars({ data, height: heightProp = 150, fill = false, segments = 
       {hover != null && data[hover] && (
         <Tooltip x={xb(hover)} W={W} title={data[hover].tip || data[hover].x}
           value={valueFmt(totals[hover])} />
+      )}
+    </div>
+  );
+}
+
+// ---- mini inline trends (Apple-Health style) --------------------------
+// Tiny fixed-height charts that sit under a headline number: no axis, no
+// labels, no hover — just the shape of the last N buckets with the most recent
+// one accented. Both measure their own pixel width (like MaturityCard's bar) so
+// the carousel's CSS `zoom` can't mis-size them in Anki's webview.
+export const SPARK_MUTED = "color-mix(in oklab, var(--text3) 62%, var(--card2))";
+
+// Bars — for counts (cards, reviews, time). Normalised to the series max. `hi`
+// picks which bar gets the accent colour (default the last = most recent; the
+// month cards pass the busiest day instead).
+export function Sparkbars({ values, height = 30, color = "var(--accent)", muted = SPARK_MUTED, hi }) {
+  const [ref, w] = useMeasure();
+  const vals = values || [];
+  const n = vals.length;
+  const W = Math.max(w, 40);
+  const max = Math.max(1, ...vals);
+  const bw = n > 0 ? Math.min(11, (W / n) * 0.62) : 4;
+  const hiIdx = hi == null ? n - 1 : hi;
+  return (
+    <div ref={ref} style={{ width: "100%" }}>
+      {w > 0 && n > 0 && (
+        <svg width={W} height={height} style={{ display: "block", overflow: "visible" }} aria-hidden="true">
+          {vals.map((v, i) => {
+            const h = Math.max(1.5, (v / max) * (height - 2));
+            const cx = (i + 0.5) * (W / n);
+            return <rect key={i} x={cx - bw / 2} y={height - h} width={bw} height={h} rx="1.5"
+              fill={i === hiIdx ? color : muted} />;
+          })}
+        </svg>
+      )}
+    </div>
+  );
+}
+
+// Line — for rates (retention). Min–max autoscaled so small swings still read.
+export function Sparkline({ values, height = 30, color = "var(--accent)", muted = SPARK_MUTED }) {
+  const [ref, w] = useMeasure();
+  const vals = values || [];
+  const n = vals.length;
+  const W = Math.max(w, 40);
+  const pad = 4;
+  const mn = n ? Math.min(...vals) : 0;
+  const mx = n ? Math.max(...vals) : 1;
+  const rng = mx - mn || 1;
+  const x = (i) => (n <= 1 ? W / 2 : pad + (i / (n - 1)) * (W - 2 * pad));
+  const y = (v) => (height - pad) - ((v - mn) / rng) * (height - 2 * pad);
+  const d = vals.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1)).join(" ");
+  return (
+    <div ref={ref} style={{ width: "100%" }}>
+      {w > 0 && n > 0 && (
+        <svg width={W} height={height} style={{ display: "block", overflow: "visible" }} aria-hidden="true">
+          {n > 1 && <path d={d} fill="none" stroke={muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
+          <circle cx={x(n - 1)} cy={y(vals[n - 1])} r="3" fill={color} />
+        </svg>
       )}
     </div>
   );

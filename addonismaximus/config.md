@@ -1,7 +1,7 @@
-# Recall — Progress settings
+# Addonis Maximus settings
 
 You normally edit these from inside the panel: on Anki's deck-browser home
-screen, find the **Recall** progress carousel and click its **gear icon**. This
+screen, find the **Addonis Maximus** progress carousel and click its **gear icon**. This
 JSON is the same data, for advanced edits.
 
 - **appearance.theme** — `strava`, `midnight`, `aurora`, `violet`, or `daylight`.

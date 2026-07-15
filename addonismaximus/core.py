@@ -22,15 +22,15 @@ def web_base() -> str:
 
 def bundle_version() -> int:
     """mtime of the built bundle — used as a ?v= cache-buster so the webview
-    never serves a stale recall.js after a rebuild/update."""
+    never serves a stale addonismaximus.js after a rebuild/update."""
     try:
-        return int(os.path.getmtime(os.path.join(os.path.dirname(__file__), "web", "recall.js")))
+        return int(os.path.getmtime(os.path.join(os.path.dirname(__file__), "web", "addonismaximus.js")))
     except Exception:
         return 0
 
 
 def script_url() -> str:
-    return f"{web_base()}/recall.js?v={bundle_version()}"
+    return f"{web_base()}/addonismaximus.js?v={bundle_version()}"
 
 
 def _cache_key(cfg):
@@ -58,7 +58,7 @@ def compute_raw(cfg, force=False):
             from . import data
             raw = data.build_dataset(mw.col, cfg)
         except Exception as e:  # never let a query error take down the UI
-            print("Recall: real-data build failed, using sample —", repr(e))
+            print("Addonis Maximus: real-data build failed, using sample —", repr(e))
             return None
         _cache["key"] = key
         _cache["raw"] = raw
@@ -69,7 +69,7 @@ def compute_raw(cfg, force=False):
         from . import data
         raw["pending"] = data._pending(mw.col, data._deck_filter_dids(mw.col, cfg))
     except Exception as e:
-        print("Recall: pending refresh failed —", repr(e))
+        print("Addonis Maximus: pending refresh failed —", repr(e))
     return raw
 
 
@@ -79,7 +79,7 @@ def invalidate_cache():
 
 
 def bootstrap_json(cfg, mode: str) -> str:
-    """The window.__RECALL__ blob injected into the page before recall.js."""
+    """The window.__ADDONISMAXIMUS__ blob injected into the page before addonismaximus.js."""
     return json.dumps({
         "config": cfg,
         "data": compute_raw(cfg),

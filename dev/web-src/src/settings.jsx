@@ -126,7 +126,7 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
   return (
     <>
       <div className="scrim" onClick={onClose} />
-      <div className="drawer" role="dialog" aria-label="Recall settings">
+      <div className="drawer" role="dialog" aria-label="Addonis Maximus settings">
         <div className="drawer-h">
           <h2><span className="gi"><Icon name="gear" size={19} /></span>Settings</h2>
           <button className="iconbtn" onClick={onClose} aria-label="Close settings"><Icon name="x" size={18} /></button>

@@ -1,5 +1,5 @@
 /* ============================================================================
-   Recall — Anki Progress.  Global tokens + components.
+   Addonis Maximus — Anki Progress.  Global tokens + components.
    Works in two mounts:
      • window mode  — full page in a dialog (selectors :root / html / body)
      • embedded mode — inside a shadow root on Anki's home screen (selectors :host)

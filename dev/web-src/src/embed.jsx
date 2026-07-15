@@ -5,7 +5,7 @@
      cards keep their natural height, so nothing is ever clipped. */
 import React from "react";
 import { Icon } from "./icons.jsx";
-import { useRecallState, visibleSections } from "./useRecall.jsx";
+import { useAddonisMaximusState, visibleSections } from "./useAddonisMaximus.jsx";
 import { renderCard } from "./cardmap.jsx";
 import { SettingsDrawer } from "./settings.jsx";
 
@@ -62,7 +62,7 @@ function applyAnkiSurfaces(host) {
 }
 
 export function EmbeddedApp({ host }) {
-  const { config, setConfig, anki } = useRecallState();
+  const { config, setConfig, anki } = useAddonisMaximusState();
   // The time-range toggle is persisted (config.ui.range) rather than ephemeral
   // state, so returning from study — which re-mounts this carousel — keeps the
   // range the user picked instead of resetting to "week".

@@ -1,4 +1,4 @@
-/* Data layer for Recall.
+/* Data layer for Addonis Maximus.
  *
  * Two halves:
  *   makeSampleRaw()        -> deterministic synthetic "raw" dataset (dev/demo).
@@ -6,7 +6,7 @@
  *                             on top of a raw dataset.
  *
  * In production, Python (data.py) produces the SAME `raw` shape from the real
- * collection and injects it as window.__RECALL__.data — then buildAnki() runs
+ * collection and injects it as window.__ADDONISMAXIMUS__.data — then buildAnki() runs
  * unchanged. The `raw` contract:
  *
  *   raw = {
@@ -167,11 +167,21 @@ export function buildAnki(raw, config) {
     const next = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 1));
     const list = days.filter((d) => d.date >= ref && d.date < next);
     const daysInMonth = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 0)).getUTCDate();
-    // One bar per calendar day (0 for unstudied / missing days).
-    const bars = new Array(daysInMonth).fill(0);
+    // Per-day series for the month (0 for unstudied / missing days), aligned by
+    // day-of-month index — feeds the mini charts on the Month-in-Review stats.
+    const bars = new Array(daysInMonth).fill(0);          // daily total cards
+    const dayReviews = new Array(daysInMonth).fill(0);
+    const dayTime = new Array(daysInMonth).fill(0);       // seconds
+    const dayStudied = new Array(daysInMonth).fill(false);
+    const dayRetention = [];                              // studied days only, in date order (clean line)
     let best = null;
     list.forEach((d) => {
-      bars[d.date.getUTCDate() - 1] = d.total;
+      const idx = d.date.getUTCDate() - 1;
+      bars[idx] = d.total;
+      dayReviews[idx] = d.reviews;
+      dayTime[idx] = d.timeSec;
+      dayStudied[idx] = !!d.studied;
+      if (d.studied && d.reviews > 0) dayRetention.push(d.retention);
       if (!best || d.total > best.total) best = d;
     });
     const isCurrent = offset === 0;
@@ -206,7 +216,7 @@ export function buildAnki(raw, config) {
       daysElapsed: isCurrent ? TODAY.getUTCDate() : daysInMonth,
       isCurrent,
       bestDay: best ? { date: best.date, total: best.total, timeSec: best.timeSec } : null,
-      bars,
+      bars, dayReviews, dayTime, dayStudied, dayRetention,
       hasData: list.some((d) => d.studied),
     };
   }

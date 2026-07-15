@@ -2,15 +2,38 @@
    Pending today. `compact` shrinks sizes for the carousel. */
 import React from "react";
 import { Icon } from "./icons.jsx";
-import { Bars, useBox, useMeasure } from "./charts.jsx";
+import { Bars, Sparkbars, Sparkline, SPARK_MUTED, useBox, useMeasure } from "./charts.jsx";
 
-const DECK_COLORS = [
-  "var(--accent)",
-  "oklch(0.72 0.13 205)",
-  "oklch(0.72 0.14 305)",
-  "oklch(0.76 0.15 135)",
-  "oklch(0.78 0.13 65)",
-];
+// One thin cell per calendar day. Today is the bright accent; other studied days
+// a dimmer accent; missed days muted; days still ahead a faint placeholder so the
+// strip spans the whole month instead of a lonely stub of early days. Fits its
+// width in one row (measured like the other mini charts, so Anki's zoom can't skew it).
+function DayStrip({ studied, elapsed, todayIdx, height = 22 }) {
+  const [ref, w] = useMeasure();
+  const cells = studied || [];
+  const n = cells.length;
+  const W = Math.max(w, 40);
+  const gap = 1.5;
+  const cw = n > 0 ? (W - gap * (n - 1)) / n : 4;
+  // When there's a "today" (current month) dim the other studied days so today
+  // stands out; a past month has no today, so its studied days stay full accent.
+  const studiedFill = todayIdx != null ? "color-mix(in oklab, var(--accent) 46%, var(--card2))" : "var(--accent)";
+  const futureFill = "color-mix(in oklab, var(--text3) 20%, transparent)";
+  return (
+    <div ref={ref} style={{ width: "100%" }}>
+      {w > 0 && n > 0 && (
+        <svg width={W} height={height} style={{ display: "block" }} aria-hidden="true">
+          {cells.map((s, i) => {
+            const isToday = todayIdx != null && i === todayIdx;
+            const future = elapsed != null && i + 1 > elapsed;
+            const fill = isToday ? "var(--accent)" : future ? futureFill : s ? studiedFill : SPARK_MUTED;
+            return <rect key={i} x={i * (cw + gap)} y={0} width={Math.max(1, cw)} height={height} rx="1.2" fill={fill} />;
+          })}
+        </svg>
+      )}
+    </div>
+  );
+}
 
 function Legend({ items }) {
   return (
@@ -149,7 +172,7 @@ export function HourlyCard({ anki, compact }) {
 
 // ===================== YOU vs YOU (BEST DAYS) =========================
 // A leaderboard of your biggest study days: gold/silver/bronze medals for the
-// podium, a highlighted leader row, the card score, and each day's time · recall.
+// podium, a highlighted leader row, the card score, and each day's time · retention.
 const MEDAL = [
   { fill: "linear-gradient(145deg, oklch(0.88 0.15 92), oklch(0.71 0.15 66))", ink: "oklch(0.26 0.03 70)" },
   { fill: "linear-gradient(145deg, oklch(0.90 0.02 250), oklch(0.70 0.02 250))", ink: "oklch(0.26 0.01 250)" },
@@ -190,13 +213,13 @@ export function BestDaysCard({ anki, compact }) {
               }}>
                 <span className="num" style={{ fontSize: compact ? 14 : 16, fontWeight: 800, color: medal ? medal.ink : "var(--text2)" }}>{i + 1}</span>
               </div>
-              {/* date + time · recall */}
+              {/* date + time · retention */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ fontWeight: 800, fontSize: compact ? 14 : 15.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmt.fmtDate(r.date)}</span>
                   {isLeader && <span style={{ color: "oklch(0.82 0.16 85)", display: "flex", flex: "0 0 auto" }}><Icon name="crown" size={compact ? 13 : 15} /></span>}
                 </div>
-                <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, marginTop: 2 }}>{fmt.fmtDurShort(r.timeSec)} · {Math.round(r.retention * 100)}% recall</div>
+                <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, marginTop: 2 }}>{fmt.fmtDurShort(r.timeSec)} · {Math.round(r.retention * 100)}% retention</div>
               </div>
               {/* card score */}
               <div style={{ textAlign: "right", flex: "0 0 auto" }}>
@@ -231,7 +254,7 @@ export function MaturityCard({ anki, config, setConfig, compact }) {
   // Suspended cards skew this card's "new" pipeline (a big suspended backlog
   // pushes every ETA to "2+ years"), so the include/exclude switch lives right
   // here — it only affects this projection. Toggling config.data triggers a
-  // Python recompute (useRecallState), so the numbers refresh in place.
+  // Python recompute (useAddonisMaximusState), so the numbers refresh in place.
   const excludeSusp = !!(config && config.data && config.data.excludeSuspended);
   const toggleSusp = () => setConfig && setConfig({ ...config, data: { ...(config.data || {}), excludeSuspended: !excludeSusp } });
   const suspToggle = setConfig ? (
@@ -424,15 +447,15 @@ export function MaturityCard({ anki, config, setConfig, compact }) {
 }
 
 // ======================= MONTH IN REVIEW ==============================
-// One calendar month as a full stat sheet — opens on last month, with ‹ › to
-// page through history. Counts (reviews/new/learning/relearning), pace (avg
-// session, time per card), answer-button breakdown, top decks. Laid out wide
-// (stats grid + two columns) to fit the carousel's fixed stage height.
+// One calendar month at a glance — opens on last month, with ‹ › to page
+// through history. A big cards-studied headline (pace + change vs the prior
+// month + busiest day) over one row of four headline stats: study time, days
+// studied, reviews, retention. Deeper breakdowns live on their own cards.
 export function MonthCard({ anki, compact }) {
   const fmt = anki.fmt;
   const span = anki.monthSpan || 0;
-  // Default to last month; clamp to 0 (this month) when there's no full prior month yet.
-  const [off, setOff] = React.useState(Math.max(-1, -span));
+  // Always open on the current month ("· so far"); ‹ › still page back through history.
+  const [off, setOff] = React.useState(0);
   const m = anki.monthStats(off);
   const prev = anki.monthStats(off - 1);
   const canPrev = off > -span;
@@ -446,10 +469,8 @@ export function MonthCard({ anki, compact }) {
     ? Math.round(((m.cards - prev.cards) / prev.cards) * 100) : null;
   const deltaUp = delta != null && delta >= 0;
 
-  // Pace. A "session" here is one study day — revlog has no session boundaries.
-  const avgSession = m.daysStudied ? m.time / m.daysStudied : 0;
+  // Cards per studied day — the one pace figure the headline needs.
   const avgPerDay = m.daysStudied ? Math.round(m.cards / m.daysStudied) : 0;
-  const perCard = m.cards ? m.time / m.cards : 0;
 
   const navBtn = (dir, enabled) => (
     <button aria-label={dir < 0 ? "Previous month" : "Next month"} disabled={!enabled}
@@ -464,27 +485,25 @@ export function MonthCard({ anki, compact }) {
     </button>
   );
 
-  const statGrid = [
-    { label: "Reviews", value: m.reviews.toLocaleString() },
-    { label: "New cards", value: m.newC.toLocaleString() },
-    { label: "Learning", value: m.learning.toLocaleString() },
-    { label: "Relearning", value: m.relearning.toLocaleString() },
-    { label: "Study time", value: fmt.fmtDurShort(m.time) },
-    { label: "Avg session", value: fmt.fmtDurShort(Math.round(avgSession)) },
-    { label: "Per card", value: perCard.toFixed(1) + "s" },
-    { label: "Retention", value: Math.round(m.retention * 100) + "%" },
+  // Four headline stats — each now a small tile with its own daily mini-chart for
+  // the month: study time & reviews as bars (busiest day accented), days studied
+  // as a filled-cell strip, retention as a line. Answer buttons, per-deck splits
+  // and learning counts still live on their own cards.
+  const argmax = (a) => (a && a.length ? a.reduce((bi, v, i) => (v > a[bi] ? i : bi), 0) : 0);
+  // In the current month, "today" is the anchor the whole card highlights; in a
+  // past month (paged via ‹ ›) fall back to that month's busiest / peak day.
+  const todayIdx = m.isCurrent ? m.daysElapsed - 1 : null;
+  const heroHi = todayIdx != null ? todayIdx : argmax(m.bars);
+  const tiles = [
+    { label: "Study time", value: fmt.fmtDurShort(m.time),
+      viz: <Sparkbars values={m.dayTime} hi={todayIdx != null ? todayIdx : argmax(m.dayTime)} height={compact ? 20 : 26} /> },
+    { label: "Days", value: m.daysStudied + " of " + m.daysElapsed,
+      viz: <DayStrip studied={m.dayStudied} elapsed={m.isCurrent ? m.daysElapsed : null} todayIdx={todayIdx} height={compact ? 20 : 26} /> },
+    { label: "Reviews", value: m.reviews.toLocaleString(),
+      viz: <Sparkbars values={m.dayReviews} hi={todayIdx != null ? todayIdx : argmax(m.dayReviews)} height={compact ? 20 : 26} /> },
+    { label: "Retention", value: Math.round(m.retention * 100) + "%",
+      viz: <Sparkline values={m.dayRetention} height={compact ? 20 : 26} /> },
   ];
-
-  const btnTotal = m.again + m.hard + m.good + m.easy || 1;
-  const segs = [
-    { k: "Again", v: m.again, c: "var(--again)" },
-    { k: "Hard", v: m.hard, c: "var(--hard)" },
-    { k: "Good", v: m.good, c: "var(--good)" },
-    { k: "Easy", v: m.easy, c: "var(--easy)" },
-  ];
-
-  const decks = (m.decks || []).slice(0, 3);
-  const deckSum = (m.decks || []).reduce((a, d) => a + d.cards, 0) || 1;
 
   return (
     <div className="card">
@@ -498,20 +517,20 @@ export function MonthCard({ anki, compact }) {
           {navBtn(1, canNext)}
         </div>
       </div>
-      <div className="card-body spread">
+      <div className="card-body center">
         {!m.hasData ? (
           <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, marginTop: 8 }}>
             No reviews logged in {m.label}. Use ‹ › to find a month you studied.
           </div>
         ) : (
           <>
-            {/* Hero: total cards + pace + delta · busiest day on the right */}
+            {/* Hero: cards studied + pace + delta · busiest day on the right */}
             <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 14 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-                <div className="num" style={{ fontSize: compact ? 32 : 42, lineHeight: 1 }}>{m.cards.toLocaleString()}</div>
+                <div className="num" style={{ fontSize: compact ? 44 : 56, lineHeight: 1 }}>{m.cards.toLocaleString()}</div>
                 <div style={{ display: "flex", flexDirection: "column" }}>
                   <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>
-                    cards studied · {avgPerDay.toLocaleString()}/day · {m.daysStudied} of {m.daysElapsed} days
+                    cards studied · {avgPerDay.toLocaleString()}/day
                   </span>
                   {delta != null && (
                     <span className="num" style={{ fontSize: compact ? 12 : 13, fontWeight: 800, color: deltaUp ? "oklch(0.74 0.16 150)" : "var(--text2)", marginTop: 2 }}>
@@ -530,80 +549,21 @@ export function MonthCard({ anki, compact }) {
               )}
             </div>
 
-            {/* Counts + pace grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: compact ? "8px 8px" : "10px 10px", margin: compact ? "12px 0" : "16px 0" }}>
-              {statGrid.map((t) => (
-                <div key={t.label}>
-                  <div className="label-sm" style={{ whiteSpace: "nowrap" }}>{t.label}</div>
-                  <div className="num" style={{ fontSize: compact ? 15 : 18, marginTop: 2 }}>{t.value}</div>
-                </div>
-              ))}
+            {/* Cards per day across the whole month — busiest day accented */}
+            <div style={{ marginTop: compact ? 12 : 16 }}>
+              <div className="label-sm">Cards per day</div>
+              <div style={{ marginTop: 5 }}><Sparkbars values={m.bars} hi={heroHi} height={compact ? 38 : 50} /></div>
             </div>
 
-            {/* Answer buttons (donut pie) | Top decks — side by side */}
-            <div style={{ display: "flex", gap: compact ? 18 : 24, alignItems: "flex-start" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="label-sm" style={{ marginBottom: compact ? 6 : 8 }}>Answer buttons</div>
-                <div style={{ display: "flex", alignItems: "center", gap: compact ? 12 : 16 }}>
-                  {(() => {
-                    const PIE = compact ? 84 : 104;
-                    const stroke = compact ? 17 : 21;
-                    const r = (PIE - stroke) / 2;
-                    const C = 2 * Math.PI * r;
-                    let acc = 0;
-                    const arcs = segs.map((s) => { const a = { ...s, frac: s.v / btnTotal, start: acc }; acc += a.frac; return a; });
-                    return (
-                      <svg width={PIE} height={PIE} style={{ flex: "0 0 auto" }}>
-                        <g transform={`rotate(-90 ${PIE / 2} ${PIE / 2})`}>
-                          {arcs.map((a) => a.v > 0 && (
-                            <circle key={a.k} cx={PIE / 2} cy={PIE / 2} r={r} fill="none" stroke={a.c} strokeWidth={stroke}
-                              strokeDasharray={`${Math.max(0.5, a.frac * C - 1.5)} ${C}`} strokeDashoffset={-a.start * C}>
-                              <title>{a.k} · {a.v.toLocaleString()} ({Math.round(a.frac * 100)}%)</title>
-                            </circle>
-                          ))}
-                        </g>
-                        <text x={PIE / 2} y={PIE / 2 - 1} textAnchor="middle" dominantBaseline="auto"
-                          style={{ fill: "var(--text)", fontFamily: "var(--font-num)", fontWeight: 800, fontSize: compact ? 15 : 18 }}>
-                          {Math.round(m.retention * 100)}%
-                        </text>
-                        <text x={PIE / 2} y={PIE / 2 + (compact ? 10 : 12)} textAnchor="middle"
-                          style={{ fill: "var(--text3)", fontFamily: "var(--font-ui)", fontWeight: 700, fontSize: compact ? 7.5 : 9, letterSpacing: ".05em", textTransform: "uppercase" }}>
-                          retention
-                        </text>
-                      </svg>
-                    );
-                  })()}
-                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: compact ? 5 : 7 }}>
-                    {segs.map((s) => (
-                      <div key={s.k} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 2, background: s.c, flex: "0 0 auto" }} />
-                        <span className="label" style={{ fontWeight: 700, color: "var(--text)", fontSize: compact ? 11.5 : 12.5 }}>{s.k}</span>
-                        <span className="num" style={{ fontSize: compact ? 12 : 13.5, marginLeft: "auto" }}>
-                          {s.v.toLocaleString()} <span style={{ color: "var(--text3)", fontWeight: 600, fontSize: 11 }}>{Math.round(s.v / btnTotal * 100)}%</span>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+            {/* Four headline stats — each a tile with its own daily mini-chart */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: compact ? 8 : 12, marginTop: compact ? 14 : 18 }}>
+              {tiles.map((t) => (
+                <div key={t.label} style={{ background: "var(--card2)", borderRadius: "var(--r-sm)", padding: compact ? "9px 10px" : "12px 13px" }}>
+                  <div className="label-sm" style={{ whiteSpace: "nowrap" }}>{t.label}</div>
+                  <div className="num" style={{ fontSize: compact ? 16 : 20, marginTop: 3, whiteSpace: "nowrap" }}>{t.value}</div>
+                  <div style={{ marginTop: compact ? 6 : 8 }}>{t.viz}</div>
                 </div>
-              </div>
-              {decks.length > 0 && (
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="label-sm" style={{ marginBottom: compact ? 6 : 8 }}>Top decks</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: compact ? 8 : 10 }}>
-                    {decks.map((d, i) => (
-                      <div key={d.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minWidth: 0 }}>
-                        <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 2, background: DECK_COLORS[i % DECK_COLORS.length], flex: "0 0 auto" }} />
-                          <span style={{ fontWeight: 700, fontSize: compact ? 11.5 : 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</span>
-                        </span>
-                        <span className="num" style={{ fontSize: compact ? 11.5 : 12.5, flex: "0 0 auto" }}>
-                          {d.cards.toLocaleString()} <span style={{ color: "var(--text3)", fontWeight: 600, fontSize: 10.5 }}>{Math.round(d.cards / deckSum * 100)}%</span>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              ))}
             </div>
           </>
         )}

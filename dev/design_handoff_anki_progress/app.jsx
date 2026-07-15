@@ -44,7 +44,7 @@ function App() {
     <div className="app-shell">
       {/* faux Anki desktop top bar */}
       <div className="topbar">
-        <div className="brand"><span className="mark"><Icon name="brain" size={14} sw={2} /></span>Recall</div>
+        <div className="brand"><span className="mark"><Icon name="brain" size={14} sw={2} /></span>Addonis Maximus</div>
         <nav>
           <a>Decks</a><a>Add</a><a>Browse</a><a className="active">Progress</a>
         </nav>

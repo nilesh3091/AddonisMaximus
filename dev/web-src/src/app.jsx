@@ -3,7 +3,7 @@
    drawer. Used by the standalone Progress window. */
 import React from "react";
 import { Icon } from "./icons.jsx";
-import { useRecallState, visibleSections } from "./useRecall.jsx";
+import { useAddonisMaximusState, visibleSections } from "./useAddonisMaximus.jsx";
 import { renderCard } from "./cardmap.jsx";
 import { SettingsDrawer } from "./settings.jsx";
 
@@ -20,7 +20,7 @@ function RangeToggle({ value, onChange }) {
 }
 
 export function App() {
-  const { config, setConfig, anki } = useRecallState();
+  const { config, setConfig, anki } = useAddonisMaximusState();
   // Range toggle persists via config.ui.range (shared with the carousel). Clamp
   // to this view's options — the window has no "Day".
   const stored = (config.ui && config.ui.range) || "week";
@@ -44,7 +44,7 @@ export function App() {
         <button className="gearbtn" onClick={openSettings} aria-label="Open settings" title="Settings">
           <Icon name="gear" size={20} />
         </button>
-        <div className="brand"><span className="mark"><Icon name="brain" size={14} sw={2} /></span>Recall</div>
+        <div className="brand"><span className="mark"><Icon name="brain" size={14} sw={2} /></span>Addonis Maximus</div>
         <div className="spacer" />
         <div className="sync"><Icon name="rotate" size={14} /> Synced just now</div>
       </div>

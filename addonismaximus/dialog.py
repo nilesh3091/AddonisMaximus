@@ -1,4 +1,4 @@
-"""The standalone Recall progress window: an AnkiWebView hosting the bundled web
+"""The standalone Addonis Maximus progress window: an AnkiWebView hosting the bundled web
 app in 'window' mode, with a JS<->Python bridge for settings + data reload."""
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ from . import core, config_store
 _dialog = None  # singleton
 
 
-class RecallDialog(QDialog):
+class AddonisMaximusDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent or mw)
-        self.setWindowTitle("Recall — Progress")
-        self.setObjectName("RecallProgressDialog")
+        self.setWindowTitle("Addonis Maximus")
+        self.setObjectName("AddonisMaximusProgressDialog")
         self.resize(760, 940)
         self.setMinimumSize(420, 560)
 
@@ -34,22 +34,22 @@ class RecallDialog(QDialog):
         cfg = config_store.get_config()
         body = (
             '<div id="root"></div>'
-            f"<script>window.__RECALL__ = {core.bootstrap_json(cfg, 'window')};</script>"
+            f"<script>window.__ADDONISMAXIMUS__ = {core.bootstrap_json(cfg, 'window')};</script>"
             f'<script src="{core.script_url()}"></script>'
         )
         self.web.stdHtml(body, css=[], js=[], default_css=False, context=self)
 
     def _on_bridge_cmd(self, cmd: str):
-        if cmd.startswith("recall:save:"):
+        if cmd.startswith("addonismaximus:save:"):
             try:
-                config_store.save_config(json.loads(cmd[len("recall:save:"):]))
+                config_store.save_config(json.loads(cmd[len("addonismaximus:save:"):]))
             except Exception as e:
-                print("Recall: save failed —", repr(e))
+                print("Addonis Maximus: save failed —", repr(e))
             return None
-        if cmd == "recall:reload":
+        if cmd == "addonismaximus:reload":
             raw = core.compute_raw(config_store.get_config(), force=True)
             if raw is not None:
-                self.web.eval(f"window.recallSetData && window.recallSetData({json.dumps(raw)});")
+                self.web.eval(f"window.addonismaximusSetData && window.addonismaximusSetData({json.dumps(raw)});")
             return None
         return self.web.defaultOnBridgeCmd(cmd)
 
@@ -59,7 +59,7 @@ def open_dialog() -> None:
     if mw.col is None:
         return
     if _dialog is None:
-        _dialog = RecallDialog(mw)
+        _dialog = AddonisMaximusDialog(mw)
 
         def _cleared(_):
             global _dialog

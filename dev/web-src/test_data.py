@@ -1,9 +1,9 @@
-"""Offline logic test for recall/data.py using a fake collection.
+"""Offline logic test for addonismaximus/data.py using a fake collection.
 Run: python3 web-src/test_data.py  (no Anki needed — data.py has no aqt imports)."""
 import os, sys, time, importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-spec = importlib.util.spec_from_file_location("recall_data", os.path.join(HERE, "..", "..", "recall", "data.py"))
+spec = importlib.util.spec_from_file_location("addonismaximus_data", os.path.join(HERE, "..", "..", "addonismaximus", "data.py"))
 data = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(data)
 

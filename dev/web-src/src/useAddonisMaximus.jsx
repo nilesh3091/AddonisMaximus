@@ -5,7 +5,7 @@ import React from "react";
 import { buildAnki, makeSampleRaw } from "./data.js";
 import { loadConfig, saveConfig, getInitialData, requestReload, onData } from "./config.js";
 
-export function useRecallState() {
+export function useAddonisMaximusState() {
   const [raw, setRaw] = React.useState(() => getInitialData() || makeSampleRaw());
   const [config, setConfigState] = React.useState(() => loadConfig());
   const anki = React.useMemo(() => buildAnki(raw, config), [raw, config]);

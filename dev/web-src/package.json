@@ -1,8 +1,8 @@
 {
-  "name": "recall-web",
+  "name": "addonismaximus-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Dev source for the Recall — Anki Progress add-on web layer. Builds to ../../recall/web/recall.js",
+  "description": "Dev source for the Addonis Maximus — Anki Progress add-on web layer. Builds to ../../addonismaximus/web/addonismaximus.js",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
