@@ -150,30 +150,34 @@ const HEAT_LEVELS = ["var(--ring-track)", "#2e5130", "#3a7d3c", "#4fa84f", "#74c
 // open up to soak up whatever pixels integer cell sizes leave over.
 const HEAT_MIN_BOX = 7;
 const HEAT_GAP_STRETCH = 2.4;
-// The calendar ends a month short of its own right edge: the newest month keeps a
-// month-wide run of empty space after it, so today never sits jammed against the
-// border (and a tooltip on the last few days has somewhere to go). That space is
-// paid for out of history — the window is eleven months, not twelve, and the
-// oldest month is the one that goes.
+// The calendar runs a month past today: eleven months of history through the
+// current one, then the month ahead, painted from the due-card forecast. That
+// keeps today clear of the right border and turns the space into a read of what
+// is coming. It is paid for out of history — the oldest month is the one that
+// goes.
 const HEAT_MONTHS = 11;
-const HEAT_BUF_COLS = 5;
+const HEAT_AHEAD = 1;
 
-// Pure heat-map layout (no hooks): the trailing HEAT_MONTHS months ending today,
-// each a 7-row block, followed by a month-wide buffer of empty space.
+// Pure heat-map layout (no hooks): the trailing HEAT_MONTHS months through the
+// current one, then HEAT_AHEAD month of days still to come — each a 7-row block.
+// Past days are shaded by reviews done; days ahead stay blank like any day with
+// nothing done on them, but still carry their due count for the hover read-out.
 // Responsive by construction — `box` is the *largest* cell it may use and the grid
 // shrinks to keep every month inside `availW` (after reserving `reserveW` for an
-// optional side panel and the buffer for itself), only dropping the oldest month
-// once cells would fall below HEAT_MIN_BOX. Returns the chosen `box`/`gap`/`bufW`
-// alongside the scale/label helpers. Shared by the Streak card and the combined
-// Activity & Streak card so the calendar math lives in exactly one place.
+// optional side panel), only dropping the oldest month once cells would fall
+// below HEAT_MIN_BOX. Returns the chosen `box`/`gap` alongside the scale/label
+// helpers. Shared by the Streak card and the combined Activity & Streak card so
+// the calendar math lives in exactly one place.
 function computeHeatmap(anki, { box: maxBox, cellGap = 3, monthGap, availW, reserveW = 0 }) {
   const TODAY = anki.TODAY;
   const dayMap = {};
   anki.days.forEach((d) => { dayMap[d.date.getUTCFullYear() + "-" + d.date.getUTCMonth() + "-" + d.date.getUTCDate()] = d; });
+  // Due-card forecast by day offset from today (day 0 = today), for the days ahead.
+  const fc = anki.forecast || [];
   const startMonth = new Date(Date.UTC(TODAY.getUTCFullYear(), TODAY.getUTCMonth() - (HEAT_MONTHS - 1), 1));
   let maxTotal = 1;
   const allMonths = [];
-  for (let i = 0; i < HEAT_MONTHS; i++) {
+  for (let i = 0; i < HEAT_MONTHS + HEAT_AHEAD; i++) {
     const md = new Date(Date.UTC(startMonth.getUTCFullYear(), startMonth.getUTCMonth() + i, 1));
     const y = md.getUTCFullYear(), mo = md.getUTCMonth();
     const daysInMonth = new Date(Date.UTC(y, mo + 1, 0)).getUTCDate();
@@ -185,27 +189,34 @@ function computeHeatmap(anki, { box: maxBox, cellGap = 3, monthGap, availW, rese
         const dayNum = c * 7 + r - lead + 1;
         if (dayNum < 1 || dayNum > daysInMonth) { cells.push(null); continue; }
         const dt = new Date(Date.UTC(y, mo, dayNum));
+        const future = dt > TODAY;
         const rec = dayMap[y + "-" + mo + "-" + dayNum];
         const total = rec ? rec.total : 0;
-        if (total > maxTotal) maxTotal = total;
+        if (!future && total > maxTotal) maxTotal = total;
+        // Days ahead carry their forecast bucket instead of a review record;
+        // past the forecast horizon `due` stays null and the cell reads empty.
+        const ahead = future ? Math.round((dt - TODAY) / 86400000) : -1;
+        const f = ahead >= 0 ? fc[ahead] : null;
         // `rec` rides along so the hover read-out can show time and retention.
-        cells.push({ total, future: dt > TODAY, today: dt.getTime() === TODAY.getTime(), dayNum, date: dt, rec });
+        cells.push({ total, future, today: dt.getTime() === TODAY.getTime(), dayNum, date: dt, rec,
+          due: f ? f.total : null, dueYoung: f ? f.young : 0, dueMature: f ? f.mature : 0 });
       }
     }
     allMonths.push({ label: MONTHS_SHORT[mo], year: y, cols, cells });
   }
   // ---- responsive fit: solve the cell size for the width we were given ----
-  // One equation: availW = reserveW + Σcols·box + Σ(cols−1)·cellGap + slots·gap,
-  // where the trailing buffer counts as one more month block (HEAT_BUF_COLS wide)
-  // so it scales with the cells instead of being a fixed slab. Solve for `box` at
-  // the base gap; if that lands under HEAT_MIN_BOX the run is too wide for this
-  // column, so drop the oldest month and solve again.
-  const colsOf = (ms) => ms.reduce((a, m) => a + m.cols, 0) + HEAT_BUF_COLS;
-  const innerGapW = (ms) => (ms.reduce((a, m) => a + (m.cols - 1), 0) + HEAT_BUF_COLS - 1) * cellGap;
-  const slotsOf = (ms) => ms.length + (reserveW ? 1 : 0);
+  // One equation: availW = reserveW + Σcols·box + Σ(cols−1)·cellGap + slots·gap.
+  // Solve for `box` at the base gap; if that lands under HEAT_MIN_BOX the run is
+  // too wide for this column, so drop the oldest month and solve again — the
+  // month ahead is never the one dropped, since the loop only trims the front.
+  const colsOf = (ms) => ms.reduce((a, m) => a + m.cols, 0);
+  const innerGapW = (ms) => ms.reduce((a, m) => a + (m.cols - 1), 0) * cellGap;
+  const slotsOf = (ms) => Math.max(0, ms.length - 1) + (reserveW ? 1 : 0);
   const solve = (ms) => (availW - reserveW - innerGapW(ms) - slotsOf(ms) * monthGap) / Math.max(1, colsOf(ms));
   let list = allMonths;
-  while (list.length > 1 && solve(list) < HEAT_MIN_BOX) list = list.slice(1);
+  // Trim from the front only, and stop at the current month + the month ahead —
+  // squeezing far enough to leave nothing but the future would be nonsense.
+  while (list.length > 1 + HEAT_AHEAD && solve(list) < HEAT_MIN_BOX) list = list.slice(1);
   const months = list;
   // Whole pixels keep the grid crisp under the carousel's zoom…
   const box = Math.max(HEAT_MIN_BOX, Math.min(maxBox, Math.floor(solve(months))));
@@ -227,8 +238,7 @@ function computeHeatmap(anki, { box: maxBox, cellGap = 3, monthGap, availW, rese
   months.forEach((mn, mi) => mn.cells.forEach((c, ci) => {
     if (c && !c.future && c.total > best.total) best = { total: c.total, mi, ci };
   }));
-  const bufW = HEAT_BUF_COLS * box + (HEAT_BUF_COLS - 1) * cellGap;
-  return { months, maxTotal, level, yearLabel, best, box, gap, cellGap, bufW };
+  return { months, maxTotal, level, yearLabel, best, box, gap, cellGap };
 }
 
 // `contain: inline-size` on the measured wrapper (both cards) is load-bearing, not
@@ -272,10 +282,14 @@ function useHeatWidth() {
 // unreliable under the carousel's CSS `zoom` (same rule the charts follow).
 function HeatTip({ x, y, w, day, badge, fmt, compact }) {
   const rec = day.rec;
+  const ahead = day.future;                          // a day that has not happened yet
   const dateTxt = day.date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-  const sub = rec && rec.total
-    ? fmt.fmtDurShort(rec.timeSec) + (rec.reviews ? " · " + Math.round(rec.retention * 100) + "% recall" : "")
-    : "";
+  const n = ahead ? (day.due || 0) : day.total;
+  const sub = ahead
+    ? (day.dueYoung || day.dueMature ? day.dueYoung + " young · " + day.dueMature + " mature" : "")
+    : rec && rec.total
+      ? fmt.fmtDurShort(rec.timeSec) + (rec.reviews ? " · " + Math.round(rec.retention * 100) + "% recall" : "")
+      : "";
   // Two elements on purpose: the outer one owns the position (its `translate`
   // would otherwise be overwritten by the `fade` keyframes), the inner one fades.
   return (
@@ -289,13 +303,15 @@ function HeatTip({ x, y, w, day, badge, fmt, compact }) {
     }}>
       {badge ? <div style={{ fontSize: compact ? 8.5 : 9.5, color: badge.color, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{badge.text}</div> : null}
       <div style={{ fontSize: compact ? 9 : 10, color: "var(--text3)", fontWeight: 700, letterSpacing: ".03em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{dateTxt}</div>
-      {day.total > 0 ? (
+      {n > 0 ? (
         <div className="num" style={{ fontSize: compact ? 15 : 18, marginTop: 1, whiteSpace: "nowrap" }}>
-          {day.total.toLocaleString()}
-          <span style={{ fontSize: compact ? 9.5 : 11, color: "var(--text2)", fontWeight: 600 }}> {day.total === 1 ? "card" : "cards"}</span>
+          {n.toLocaleString()}
+          <span style={{ fontSize: compact ? 9.5 : 11, color: "var(--text2)", fontWeight: 600 }}>
+            {ahead ? (n === 1 ? " card due" : " cards due") : (n === 1 ? " card" : " cards")}
+          </span>
         </div>
       ) : (
-        <div style={{ fontSize: compact ? 11 : 13, marginTop: 2, color: "var(--text2)", fontWeight: 700 }}>No reviews</div>
+        <div style={{ fontSize: compact ? 11 : 13, marginTop: 2, color: "var(--text2)", fontWeight: 700 }}>{ahead ? "Nothing due" : "No reviews"}</div>
       )}
       {sub ? <div style={{ fontSize: compact ? 9 : 10, color: "var(--text3)", fontWeight: 600, marginTop: 1, whiteSpace: "nowrap" }}>{sub}</div> : null}
     </div>
@@ -308,7 +324,7 @@ function HeatTip({ x, y, w, day, badge, fmt, compact }) {
 // and the heat-map panel. `lead` slots an extra block (the Streak card's
 // daily-average box) in front of the first month; `onHover`/`onPick` let the
 // host mirror or pin the day the pointer is on.
-function HeatCalendar({ months, box, cellGap, gap, level, best, compact, fmt, sel, onPick, onHover, lead, leadW = 0, bufW = 0 }) {
+function HeatCalendar({ months, box, cellGap, gap, level, best, compact, fmt, sel, onPick, onHover, lead, leadW = 0 }) {
   // { mi, ci, day } — hovered or tapped. The day itself rides along because the
   // indexes are only valid for the month list that produced them: a resize can
   // drop the oldest month while a tooltip is up, which would otherwise shift every
@@ -327,7 +343,7 @@ function HeatCalendar({ months, box, cellGap, gap, level, best, compact, fmt, se
   const xs = [];
   let acc = lead ? leadW + gap : 0;
   months.forEach((m) => { xs.push(acc); acc += monthW(m) + gap; });
-  const rowW = Math.max(0, acc - gap + (bufW ? gap + bufW : 0));
+  const rowW = Math.max(0, acc - gap);
 
   const tipW = compact ? 118 : 134;                 // shared with HeatTip's box
   const hide = () => { setTip(null); if (onHover) onHover(null); };
@@ -368,16 +384,21 @@ function HeatCalendar({ months, box, cellGap, gap, level, best, compact, fmt, se
                 const isBest = mi === best.mi && ci === best.ci;
                 const isSel = sel && !c.future && c.date.getTime() === sel.date.getTime();
                 const isTip = day === c;
+                // Days ahead are live too, as long as the forecast reaches them.
+                const live = !c.future || c.due != null;
+                const dateTxt = c.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
                 return <div key={ci}
                   className={c.today ? "heat-today" : undefined}
-                  onMouseEnter={c.future ? undefined : () => show(mi, ci, c)}
-                  onClick={c.future ? undefined : () => pick(mi, ci, c)}
-                  aria-label={c.future ? undefined : (c.today ? "Today, " : "") + c.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) + " — " + c.total + " cards"}
+                  onMouseEnter={live ? () => show(mi, ci, c) : undefined}
+                  onClick={live ? () => pick(mi, ci, c) : undefined}
+                  aria-label={!live ? undefined : c.future ? dateTxt + " — " + c.due + " due"
+                    : (c.today ? "Today, " : "") + dateTxt + " — " + c.total + " cards"}
                   style={{
                     width: box, height: box, borderRadius: cellRadius,
-                    background: c.future ? "transparent" : HEAT_LEVELS[level(c.total)],
+                    // a day ahead looks like any day with nothing done on it
+                    background: HEAT_LEVELS[c.future ? 0 : level(c.total)],
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    cursor: c.future ? "default" : "pointer",
+                    cursor: live ? "pointer" : "default",
                     boxShadow: isSel ? "0 0 0 2px var(--accent)" : isTip ? "0 0 0 2px var(--text2)" : isBest ? "0 0 0 1.5px #ffce47" : "none",
                   }}>
                     {isBest && showTrophy
@@ -388,10 +409,9 @@ function HeatCalendar({ months, box, cellGap, gap, level, best, compact, fmt, se
             </div>
           </div>
         ))}
-        {/* the month of breathing room after today — empty on purpose */}
-        {bufW ? <div aria-hidden="true" style={{ flex: "0 0 auto", width: bufW }} /> : null}
         {day ? <HeatTip x={tipX} y={tipY} w={tipW} day={day} fmt={fmt} compact={compact}
           badge={day.today ? { text: "Today", color: "var(--accent)" }
+            : day.future ? { text: "Scheduled", color: "var(--text2)" }
             : day === bestCell ? { text: "Best day", color: "#ffce47" } : null} /> : null}
       </div>
     </div>
@@ -442,9 +462,9 @@ export function StreakCard({ anki, compact, box = 14 }) {
       }}>
         {shown ? (
           <>
-            <div style={{ fontSize: compact ? 8 : 9, fontWeight: 800, color: "var(--accent)", letterSpacing: ".06em", textTransform: "uppercase" }}>{shown.date.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}</div>
-            <div className="num" style={{ fontSize: compact ? 21 : 25, lineHeight: 1, fontWeight: 800, color: "var(--accent)" }}>{shown.total.toLocaleString()}</div>
-            <div style={{ fontSize: compact ? 8 : 9, fontWeight: 800, color: "var(--text2)", letterSpacing: ".04em", textTransform: "uppercase" }}>{shown.total === 1 ? "card" : "cards"}</div>
+            <div style={{ fontSize: compact ? 8 : 9, fontWeight: 800, color: shown.future ? "var(--text2)" : "var(--accent)", letterSpacing: ".06em", textTransform: "uppercase" }}>{shown.date.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}</div>
+            <div className="num" style={{ fontSize: compact ? 21 : 25, lineHeight: 1, fontWeight: 800, color: shown.future ? "var(--text)" : "var(--accent)" }}>{(shown.future ? (shown.due || 0) : shown.total).toLocaleString()}</div>
+            <div style={{ fontSize: compact ? 8 : 9, fontWeight: 800, color: "var(--text2)", letterSpacing: ".04em", textTransform: "uppercase" }}>{shown.future ? "cards due" : shown.total === 1 ? "card" : "cards"}</div>
             <div style={{ fontSize: compact ? 7.5 : 8.5, fontWeight: 600, color: "var(--text3)" }}>{shown.date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}</div>
           </>
         ) : (
@@ -490,7 +510,7 @@ export function StreakCard({ anki, compact, box = 14 }) {
               level={heat.level} best={heat.best} compact={compact} fmt={anki.fmt}
               sel={sel} onHover={setHov}
               onPick={(c) => setSel((p) => p && p.date.getTime() === c.date.getTime() ? null : c)}
-              lead={avgBox} leadW={avgBoxW} bufW={heat.bufW} />
+              lead={avgBox} leadW={avgBoxW} />
           )}
           <HeatLegend compact={compact} />
         </div>
@@ -525,7 +545,7 @@ function HeatmapPanel({ anki, compact, box = 14, showHeader = true }) {
       )}
       {heat && (
         <HeatCalendar months={heat.months} box={heat.box} cellGap={heat.cellGap} gap={heat.gap}
-          level={heat.level} best={heat.best} compact={compact} fmt={anki.fmt} bufW={heat.bufW} />
+          level={heat.level} best={heat.best} compact={compact} fmt={anki.fmt} />
       )}
       <HeatLegend compact={compact} yearLabel={showHeader ? null : (heat ? heat.yearLabel : "")} />
     </div>

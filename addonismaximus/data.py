@@ -4,7 +4,7 @@ real Anki collection.
 `raw` contract (mirror of data.js):
   { today, dayCutoff, decks:[{name,retain}], days:[{date,dow,studied,reviews,newC,learning,
     relearning,total,timeSec,again,hard,good,easy,retention,deckSplit}],
-    hourly, forecast,
+    hourly, forecast (FORECAST_DAYS long),
     projection:[{deck,mature,young,new,introPerDay,typicalDays,samples,
                  eta90Days,eta90Date,series:[{t,mature}],
                  milestones:[{pct,count,days,date}]}],
@@ -18,6 +18,11 @@ from __future__ import annotations
 import bisect
 import datetime
 from typing import Any, Dict, List
+
+# How far ahead the due-card forecast reaches. The heat-map paints the rest of
+# this month plus the whole of the next one, which needs up to ~62 days; the
+# Forecast card still shows only its first 30.
+FORECAST_DAYS = 62
 
 DAY_SEC = 86400
 N_DAYS = 365 * 3 + 30  # ~3 years of daily history for the trend/calendar
@@ -180,7 +185,7 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
             return fallback
 
     forecast = guard(lambda: _forecast(col, mature_days, include_dids),
-                     [{"day": k, "young": 0, "mature": 0, "total": 0} for k in range(30)])
+                     [{"day": k, "young": 0, "mature": 0, "total": 0} for k in range(FORECAST_DAYS)])
     projection = guard(lambda: _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_suspended), [])
     pending = guard(lambda: _pending(col, include_dids), [])
 
@@ -226,12 +231,12 @@ def _forecast(col, mature_days, include_dids):
     extra, params = _deck_where(include_dids)
     rows = col.db.all(
         f"SELECT due, ivl FROM cards WHERE queue=2 AND due BETWEEN ? AND ?{extra}",
-        today, today + 29, *params,
+        today, today + FORECAST_DAYS - 1, *params,
     )
-    buckets = [{"day": k, "young": 0, "mature": 0, "total": 0} for k in range(30)]
+    buckets = [{"day": k, "young": 0, "mature": 0, "total": 0} for k in range(FORECAST_DAYS)]
     for due, ivl in rows:
         k = int(due) - today
-        if 0 <= k < 30:
+        if 0 <= k < FORECAST_DAYS:
             b = buckets[k]
             b["mature" if (ivl or 0) >= mature_days else "young"] += 1
             b["total"] += 1

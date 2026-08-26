@@ -17,7 +17,7 @@
  *               relearning, total, timeSec, again, hard, good, easy,
  *               retention, deckSplit:{name:count} }],
  *     hourly:   [{ hour, pct, retention } × 24],
- *     forecast: [{ day, young, mature, total } × 30],
+ *     forecast: [{ day, young, mature, total } × 62],   // day 0 = today
  *     projection: [{ deck, mature, young, new, introPerDay, typicalDays,
  *                    samples, eta90Days, eta90Date, series:[{t, mature}],
  *                    milestones:[{pct, count, days, date}] }],
@@ -473,7 +473,7 @@ export function makeSampleRaw() {
   }));
 
   const forecast = [];
-  for (let k = 0; k < 30; k++) {
+  for (let k = 0; k < 62; k++) {                       // mirrors data.py FORECAST_DAYS
     const base = 150 * (1 - k * 0.012) * noise(0.18);
     const young = Math.max(0, Math.round(base * (0.42 - k * 0.004)));
     const matureDue = Math.max(0, Math.round(base * (0.58 + k * 0.004)));

@@ -51,7 +51,7 @@ function Legend({ items }) {
 // ============================ FORECAST =================================
 export function ForecastCard({ anki, compact }) {
   const fmt = anki.fmt;
-  const data = anki.forecast.map((f) => ({
+  const data = anki.forecast.slice(0, 30).map((f) => ({
     x: f.day === 0 ? "Today" : "+" + f.day,
     tip: f.day === 0 ? "Due today" : "In " + f.day + " days",
     young: f.young, mature: f.mature,

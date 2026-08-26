@@ -100,7 +100,7 @@ assert _now_ms < raw["dayCutoff"] <= _now_ms + 86400000, raw["dayCutoff"]
 assert isinstance(raw["allDecks"], list) and all(isinstance(n, str) for n in raw["allDecks"]), raw["allDecks"]
 assert len(raw["days"]) == data.N_DAYS, len(raw["days"])
 assert len(raw["hourly"]) == 24
-assert len(raw["forecast"]) == 30
+assert len(raw["forecast"]) == data.FORECAST_DAYS
 
 studied = [d for d in raw["days"] if d["studied"]]
 assert studied, "no studied days"
