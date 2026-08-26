@@ -597,14 +597,12 @@ export function OverviewCard({ anki, range, chartType, compact }) {
 // heat-map. The set is fixed for now, but every block is rendered by key through
 // `renderBlock`, and `MultiView` takes the list as a prop — so letting the user
 // choose what sits in each slot later is a matter of feeding it a different array.
-export const MULTI_BLOCKS = ["rings", "trend", "heatmap"];
-
-// Display info for a future block picker (same shape as SECTIONS in config.js).
-export const BLOCK_META = [
-  { key: "rings", label: "Goal rings", icon: "target" },
-  { key: "trend", label: "Trend graph", icon: "layers" },
-  { key: "heatmap", label: "Year heat-map", icon: "flame" },
-];
+// Slots are keyed by *card* (the same keys as SECTIONS in config.js), so the
+// per-slot picker can offer the whole library rather than three block types.
+// Three of those cards have a chrome-less "block" rendering that suits the
+// stack better than their full card — see renderBlock; the rest fall back to
+// the card itself, drawn by the `renderAny` MultiView is handed.
+export const MULTI_BLOCKS = ["goals", "activity", "streak"];
 
 function RingsBlock({ anki, range, compact, onAddGoal }) {
   const goals = anki.goals(range);
@@ -672,19 +670,66 @@ function TrendBlock({ anki, range, chartType, compact }) {
 }
 
 export function renderBlock(key, ctx) {
-  const { anki, range, chartType, compact, onAddGoal } = ctx;
+  const { anki, range, chartType, compact, onAddGoal, renderAny } = ctx;
   switch (key) {
-    case "rings": return <RingsBlock anki={anki} range={range} compact={compact} onAddGoal={onAddGoal} />;
-    case "trend": return <TrendBlock anki={anki} range={range} chartType={chartType} compact={compact} />;
+    case "goals": return <RingsBlock anki={anki} range={range} compact={compact} onAddGoal={onAddGoal} />;
+    case "activity": return <TrendBlock anki={anki} range={range} chartType={chartType} compact={compact} />;
     // the streak lives in the panel header, so the calendar drops its own
-    case "heatmap": return <HeatmapPanel anki={anki} compact={compact} box={compact ? 11 : 14} showHeader={false} />;
-    default: return null;
+    case "streak": return <HeatmapPanel anki={anki} compact={compact} box={compact ? 11 : 14} showHeader={false} />;
+    // every other card renders as itself; MultiView supplies the renderer so
+    // cards-core never has to import cardmap back (that would be a cycle)
+    default: return renderAny ? renderAny(key, ctx) : null;
   }
 }
 
-export function MultiView({ anki, range, chartType, compact, onAddGoal, blocks = MULTI_BLOCKS }) {
+// The pencil in a band's corner: swaps which card fills that slot. The menu is
+// the full card library, so a slot is not limited to the three that have a
+// block rendering; picking a card that already occupies another slot trades
+// places with it rather than showing it twice.
+function BlockPicker({ current, options, compact, onPick }) {
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    // deferred, so the click that opened the menu does not also close it
+    const id = setTimeout(() => document.addEventListener("click", close), 0);
+    return () => { clearTimeout(id); document.removeEventListener("click", close); };
+  }, [open]);
+  return (
+    <div className="band-edit-wrap">
+      <button className={"band-edit" + (open ? " on" : "")} aria-label="Choose the card for this slot"
+        title="Choose a different card" onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}>
+        <Icon name="pencil" size={compact ? 12 : 14} />
+      </button>
+      {open && (
+        <div className="band-menu" onClick={(e) => e.stopPropagation()}>
+          {options.map((o) => (
+            <button key={o.key} className={"band-menu-item" + (o.key === current ? " active" : "")}
+              onClick={() => { setOpen(false); onPick(o.key); }}>
+              <span className="bi"><Icon name={o.icon} size={13} /></span>
+              <span className="bl">{o.label}</span>
+              {o.key === current ? <span className="bc"><Icon name="check" size={12} /></span> : null}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function MultiView({ anki, range, chartType, compact, onAddGoal, blocks = MULTI_BLOCKS, onBlocks, cards = [], renderAny, config, setConfig }) {
   const periodWord = range === "day" ? "Today" : range === "week" ? "This week" : "This month";
-  const ctx = { anki, range, chartType, compact, onAddGoal };
+  const ctx = { anki, range, chartType, compact, onAddGoal, renderAny, config, setConfig };
+  // Picking a card that already sits in another slot swaps the two, so the stack
+  // never shows the same card twice.
+  const setSlot = (i, key) => {
+    if (!onBlocks || blocks[i] === key) return;
+    const next = blocks.slice();
+    const held = next.indexOf(key);
+    if (held >= 0) next[held] = next[i];
+    next[i] = key;
+    onBlocks(next);
+  };
   return (
     <div className="card dash">
       <div className="card-h">
@@ -700,8 +745,13 @@ export function MultiView({ anki, range, chartType, compact, onAddGoal, blocks =
         </div>
       </div>
       <div className="card-body dash-body">
-        {blocks.map((k) => (
-          <div key={k} className={"dash-band dash-" + k}>{renderBlock(k, ctx)}</div>
+        {blocks.map((k, i) => (
+          <div key={k + i} className={"dash-band dash-" + k}>
+            {onBlocks && cards.length
+              ? <BlockPicker current={k} options={cards} compact={compact} onPick={(next) => setSlot(i, next)} />
+              : null}
+            {renderBlock(k, ctx)}
+          </div>
         ))}
       </div>
     </div>

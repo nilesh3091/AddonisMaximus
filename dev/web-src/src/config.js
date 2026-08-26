@@ -49,7 +49,9 @@ export const DEFAULT_CONFIG = {
   // (rings / graph / heat-map), no swiping; "single" = the swipe carousel, one
   // card at a time. stageHeight is the carousel's card height in pre-zoom px
   // (single mode only).
-  appearance: { theme: "strava", chart: "area", corners: "round", textScale: 1, viewMode: "multi", stageHeight: 320 },
+  // blocks = which card fills each of multi mode's three slots, by card key; the
+  // pencil in a band's corner rewrites it. MUST stay in sync with config_store.py.
+  appearance: { theme: "strava", chart: "area", corners: "round", textScale: 1, viewMode: "multi", stageHeight: 320, blocks: ["goals", "activity", "streak"] },
   sections: {
     order: SECTIONS.map((s) => s.key),
     // The carousel ships lean — only DEFAULT_VISIBLE is on; users turn the rest

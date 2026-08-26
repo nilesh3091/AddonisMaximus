@@ -7,7 +7,8 @@ import React from "react";
 import { Icon } from "./icons.jsx";
 import { useAddonisMaximusState, visibleSections } from "./useAddonisMaximus.jsx";
 import { renderCard } from "./cardmap.jsx";
-import { MultiView } from "./cards-core.jsx";
+import { MultiView, MULTI_BLOCKS } from "./cards-core.jsx";
+import { SECTIONS } from "./config.js";
 import { SettingsDrawer } from "./settings.jsx";
 
 function RangeToggle({ value, onChange, disabled, options = ["day", "week", "month"] }) {
@@ -107,6 +108,11 @@ export function EmbeddedApp({ host }) {
   // then natural height, so the stage height only matters in single mode.
   const multi = config.appearance.viewMode === "multi";
   const stageH = Number(config.appearance.stageHeight) || DEFAULT_STAGE_H;
+  // Which card fills each of multi mode's three slots (the pencil in a band's
+  // corner rewrites this). Keys are card keys, so any card can take any slot.
+  const blocks = Array.isArray(config.appearance.blocks) && config.appearance.blocks.length
+    ? config.appearance.blocks : MULTI_BLOCKS;
+  const setBlocks = (next) => setConfig({ ...config, appearance: { ...config.appearance, blocks: next } });
   // Text size: scale the single carousel zoom so fonts, rings, charts and spacing
   // all grow/shrink together. base 0.656 × multiplier (default 1). It rides on the
   // element in *render* rather than being poked onto the host in an effect, so a
@@ -143,7 +149,9 @@ export function EmbeddedApp({ host }) {
         {multi ? (
           <div className="embed-multi">
             <MultiView anki={anki} range={effRange} chartType={config.appearance.chart}
-              onAddGoal={openSettings} compact />
+              onAddGoal={openSettings} compact
+              blocks={blocks} onBlocks={setBlocks} cards={SECTIONS} renderAny={renderCard}
+              config={config} setConfig={setConfig} />
           </div>
         ) : n === 0 ? (
           <div className="card"><div className="empty-hint">No cards enabled. Open <b>Settings</b> (gear) to turn some on.</div></div>

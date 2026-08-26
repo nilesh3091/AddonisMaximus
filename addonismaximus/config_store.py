@@ -31,7 +31,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # (rings / graph / heat-map), no swiping; "single" = the swipe carousel, one
     # card at a time. stageHeight = the carousel's card height in pre-zoom px
     # (single mode only).
-    "appearance": {"theme": "strava", "chart": "area", "corners": "round", "textScale": 1, "viewMode": "multi", "stageHeight": 320},
+    # blocks = which card fills each of multi mode's three slots, by card key; the
+    # pencil in a band's corner rewrites it. MIRROR of config.js DEFAULT_CONFIG.
+    "appearance": {"theme": "strava", "chart": "area", "corners": "round", "textScale": 1,
+                   "viewMode": "multi", "stageHeight": 320,
+                   "blocks": ["goals", "activity", "streak"]},
     # defaultCard = which card the carousel opens on (a section key); carousel-only.
     # The carousel ships lean — only DEFAULT_VISIBLE is on; users enable the rest
     # in Settings → Cards & sections.

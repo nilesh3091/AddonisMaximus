@@ -48,7 +48,7 @@ The carousel host renders one of two things (`embed.jsx`):
 - **`"multi"`** (default) — no carousel. `MultiView` (`cards-core.jsx`) stacks **three blocks**: goal rings → trend graph → 12-month heat-map, each a `.dash-band`, panel at natural height.
 - **`"single"`** — the swipe carousel: one enabled section at a time, arrows / dots / swipe, fixed stage height.
 
-Blocks are rendered by key through `renderBlock(key, ctx)`, and `MultiView` takes the list as a `blocks` prop defaulting to `MULTI_BLOCKS`. **To let users choose what goes in each slot**, add a `appearance.blocks` array to both configs and pass it in — no other change needed. `BLOCK_META` already carries the labels/icons for such a picker.
+Blocks are rendered by key through `renderBlock(key, ctx)` and `MultiView` takes the list as a `blocks` prop (default `MULTI_BLOCKS`), fed from **`appearance.blocks`** — three *card* keys, one per slot. Each band carries a **pencil in its top-right** (`BlockPicker`) whose menu is the whole `SECTIONS` library; picking a card that already holds another slot swaps the two. `goals` / `activity` / `streak` have chrome-less block renderings (rings, trend graph, heat-map); every other key falls back to its full card via the `renderAny` prop — `embed.jsx` passes `renderCard`, because importing cardmap from cards-core would be a cycle. `.dash-band > .card` strips the nested card's frame and keeps its header clear of the pencil.
 
 Blocks reuse the card internals rather than copying them: `GoalRings` is shared with `GoalsCard`, and `HeatmapPanel` is shared with `OverviewCard` (`showHeader={false}` in multi, since the streak sits in the panel header).
 
