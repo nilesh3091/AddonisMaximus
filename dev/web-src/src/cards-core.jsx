@@ -144,7 +144,7 @@ const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "S
 // Ten steps, not four — the Review Heatmap add-on's "lime" ramp, whose values
 // live in styles.css so the light theme can flip the ramp. Index 0 is a day with
 // nothing done. Ten steps only pay off with thresholds to match: see `level`.
-const HEAT_LEVELS = ["var(--ring-track)",
+const HEAT_LEVELS = ["var(--heat-0)",
   "var(--heat-1)", "var(--heat-2)", "var(--heat-3)", "var(--heat-4)", "var(--heat-5)",
   "var(--heat-6)", "var(--heat-7)", "var(--heat-8)", "var(--heat-9)", "var(--heat-10)"];
 // Shade thresholds as multiples of a typical day, the trick that makes the same

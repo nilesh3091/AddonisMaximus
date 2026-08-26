@@ -95,12 +95,17 @@ html[data-theme="violet"], :host([data-theme="violet"]) {
    Glutanimate), ten steps instead of our old four. Dark surfaces run deep →
    pale as the day gets busier; the light theme flips it (see daylight below). */
 :root, :host {
+  /* A day with nothing done sits *darker* than the card, so a missed day reads as
+     a hole in the run — the old --ring-track was white at 9%, which lifted those
+     days above the surface and made every gap shout. Same value the add-on uses. */
+  --heat-0: #222222;
   --heat-1: #1e6823; --heat-2: #2a7b2c; --heat-3: #378f36; --heat-4: #44a340; --heat-5: #5cae4c;
   --heat-6: #74ba58; --heat-7: #8cc665; --heat-8: #a4d06f; --heat-9: #bddb7a; --heat-10: #d6e685;
 }
 
 /* Daylight: light */
 html[data-theme="daylight"], :host([data-theme="daylight"]) {
+  --heat-0: #eaeaea;
   --heat-1: #d6e685; --heat-2: #bddb7a; --heat-3: #a4d06f; --heat-4: #8cc665; --heat-5: #74ba58;
   --heat-6: #5cae4c; --heat-7: #44a340; --heat-8: #378f36; --heat-9: #2a7b2c; --heat-10: #1e6823;
   --bg: oklch(0.96 0.004 70);
