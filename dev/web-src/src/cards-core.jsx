@@ -141,7 +141,17 @@ export function ActivityCard({ anki, range, chartType, compact }) {
 // ============================ STREAK ===================================
 const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 // Green contribution shades matching the native Anki review-heatmap add-on above.
-const HEAT_LEVELS = ["var(--ring-track)", "#2e5130", "#3a7d3c", "#4fa84f", "#74c357"];
+// Ten steps, not four — the Review Heatmap add-on's "lime" ramp, whose values
+// live in styles.css so the light theme can flip the ramp. Index 0 is a day with
+// nothing done. Ten steps only pay off with thresholds to match: see `level`.
+const HEAT_LEVELS = ["var(--ring-track)",
+  "var(--heat-1)", "var(--heat-2)", "var(--heat-3)", "var(--heat-4)", "var(--heat-5)",
+  "var(--heat-6)", "var(--heat-7)", "var(--heat-8)", "var(--heat-9)", "var(--heat-10)"];
+// Shade thresholds as multiples of a typical day, the trick that makes the same
+// add-on's map read so well: scaling to the single busiest day (what we did
+// before) lets one cram session flatten a whole year into the bottom shade.
+// Floor the average at 20 so a light user's map isn't all top-shade either.
+const HEAT_FACTORS = [0.125, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 4.0];
 
 // Layout constants shared by every heat-map. The cell size is derived from the
 // width the calendar is handed — so it fills its column instead of leaving a
@@ -150,13 +160,12 @@ const HEAT_LEVELS = ["var(--ring-track)", "#2e5130", "#3a7d3c", "#4fa84f", "#74c
 // open up to soak up whatever pixels integer cell sizes leave over.
 const HEAT_MIN_BOX = 7;
 const HEAT_GAP_STRETCH = 2.4;
-// The calendar runs a month past today: eleven months of history through the
-// current one, then the month ahead, painted from the due-card forecast. That
-// keeps today clear of the right border and turns the space into a read of what
-// is coming. It is paid for out of history — the oldest month is the one that
-// goes.
-const HEAT_MONTHS = 11;
-const HEAT_AHEAD = 1;
+// The calendar runs two months past today: ten months of history through the
+// current one, then the months ahead. That keeps today clear of the right border
+// and leaves room to read what is coming. It is paid for out of history — the
+// oldest months are the ones that go, so the whole run stays the same width.
+const HEAT_MONTHS = 10;
+const HEAT_AHEAD = 2;
 
 // Pure heat-map layout (no hooks): the trailing HEAT_MONTHS months through the
 // current one, then HEAT_AHEAD month of days still to come — each a 7-row block.
@@ -174,8 +183,11 @@ function computeHeatmap(anki, { box: maxBox, cellGap = 3, monthGap, availW, rese
   anki.days.forEach((d) => { dayMap[d.date.getUTCFullYear() + "-" + d.date.getUTCMonth() + "-" + d.date.getUTCDate()] = d; });
   // Due-card forecast by day offset from today (day 0 = today), for the days ahead.
   const fc = anki.forecast || [];
+  // The current run of study days, so the grid can outline it.
+  const runFrom = anki.streakFrom ? anki.streakFrom.getTime() : null;
+  const runTo = anki.streakTo ? anki.streakTo.getTime() : null;
   const startMonth = new Date(Date.UTC(TODAY.getUTCFullYear(), TODAY.getUTCMonth() - (HEAT_MONTHS - 1), 1));
-  let maxTotal = 1;
+  let maxTotal = 1, studiedTotal = 0, studiedDays = 0;
   const allMonths = [];
   for (let i = 0; i < HEAT_MONTHS + HEAT_AHEAD; i++) {
     const md = new Date(Date.UTC(startMonth.getUTCFullYear(), startMonth.getUTCMonth() + i, 1));
@@ -193,12 +205,14 @@ function computeHeatmap(anki, { box: maxBox, cellGap = 3, monthGap, availW, rese
         const rec = dayMap[y + "-" + mo + "-" + dayNum];
         const total = rec ? rec.total : 0;
         if (!future && total > maxTotal) maxTotal = total;
+        if (!future && total > 0) { studiedTotal += total; studiedDays++; }
         // Days ahead carry their forecast bucket instead of a review record;
         // past the forecast horizon `due` stays null and the cell reads empty.
         const ahead = future ? Math.round((dt - TODAY) / 86400000) : -1;
         const f = ahead >= 0 ? fc[ahead] : null;
         // `rec` rides along so the hover read-out can show time and retention.
         cells.push({ total, future, today: dt.getTime() === TODAY.getTime(), dayNum, date: dt, rec,
+          streak: runFrom != null && dt.getTime() >= runFrom && dt.getTime() <= runTo,
           due: f ? f.total : null, dueYoung: f ? f.young : 0, dueMature: f ? f.mature : 0 });
       }
     }
@@ -229,7 +243,13 @@ function computeHeatmap(anki, { box: maxBox, cellGap = 3, monthGap, availW, rese
     ? monthGap + Math.min(monthGap * (HEAT_GAP_STRETCH - 1), spare / slots)
     : monthGap;
 
-  const level = (t) => t <= 0 ? 0 : t < maxTotal * 0.25 ? 1 : t < maxTotal * 0.5 ? 2 : t < maxTotal * 0.75 ? 3 : 4;
+  // A typical day = the mean over days actually studied in the visible window.
+  const avg = Math.max(20, studiedDays ? Math.round(studiedTotal / studiedDays) : 0);
+  const level = (t) => {
+    if (t <= 0) return 0;
+    for (let i = 0; i < HEAT_FACTORS.length; i++) if (t <= avg * HEAT_FACTORS[i]) return i + 1;
+    return HEAT_LEVELS.length - 1;
+  };
   const firstY = months.length ? months[0].year : TODAY.getUTCFullYear();
   const lastY = months.length ? months[months.length - 1].year : TODAY.getUTCFullYear();
   const yearLabel = firstY === lastY ? String(lastY) : firstY + "–" + lastY;
@@ -399,7 +419,12 @@ function HeatCalendar({ months, box, cellGap, gap, level, best, compact, fmt, se
                     background: HEAT_LEVELS[c.future ? 0 : level(c.total)],
                     display: "flex", alignItems: "center", justifyContent: "center",
                     cursor: live ? "pointer" : "default",
-                    boxShadow: isSel ? "0 0 0 2px var(--accent)" : isTip ? "0 0 0 2px var(--text2)" : isBest ? "0 0 0 1.5px #ffce47" : "none",
+                    boxShadow: isSel ? "0 0 0 2px var(--accent)"
+                      : isTip ? "0 0 0 2px var(--text2)"
+                      : isBest ? "0 0 0 1.5px #ffce47"
+                      // the current streak, ringed so the run reads as one stretch
+                      : c.streak ? "0 0 0 1.5px color-mix(in srgb, var(--accent) 62%, transparent)"
+                      : "none",
                   }}>
                     {isBest && showTrophy
                       ? <span style={{ color: "#ffd86b", display: "flex", filter: "drop-shadow(0 1px 1px rgba(0,0,0,.5))" }}><Icon name="trophy" size={Math.round(box * 0.62)} sw={2.2} /></span>
@@ -425,8 +450,9 @@ function HeatLegend({ compact, yearLabel }) {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginTop: compact ? 10 : 14 }}>
       {yearLabel ? <span className="label-sm" style={{ marginRight: "auto" }}>{yearLabel}</span> : null}
       <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>Less</span>
-      {HEAT_LEVELS.map((bg, i) => (
-        <span key={i} style={{ width: compact ? 9 : 11, height: compact ? 9 : 11, borderRadius: 2, background: bg }} />
+      {/* every other step — eleven swatches would crowd the row */}
+      {[0, 2, 4, 6, 8, 10].map((i) => (
+        <span key={i} style={{ width: compact ? 9 : 11, height: compact ? 9 : 11, borderRadius: 2, background: HEAT_LEVELS[i] }} />
       ))}
       <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>More</span>
     </div>

@@ -19,10 +19,10 @@ import bisect
 import datetime
 from typing import Any, Dict, List
 
-# How far ahead the due-card forecast reaches. The heat-map paints the rest of
-# this month plus the whole of the next one, which needs up to ~62 days; the
+# How far ahead the due-card forecast reaches. The heat-map runs the rest of this
+# month plus HEAT_AHEAD (2) months beyond it, which needs up to ~93 days; the
 # Forecast card still shows only its first 30.
-FORECAST_DAYS = 62
+FORECAST_DAYS = 93
 
 DAY_SEC = 86400
 N_DAYS = 365 * 3 + 30  # ~3 years of daily history for the trend/calendar

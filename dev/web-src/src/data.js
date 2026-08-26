@@ -17,7 +17,7 @@
  *               relearning, total, timeSec, again, hard, good, easy,
  *               retention, deckSplit:{name:count} }],
  *     hourly:   [{ hour, pct, retention } × 24],
- *     forecast: [{ day, young, mature, total } × 62],   // day 0 = today
+ *     forecast: [{ day, young, mature, total } × 93],   // day 0 = today
  *     projection: [{ deck, mature, young, new, introPerDay, typicalDays,
  *                    samples, eta90Days, eta90Date, series:[{t, mature}],
  *                    milestones:[{pct, count, days, date}] }],
@@ -235,16 +235,18 @@ export function buildAnki(raw, config) {
   function computeStreakDays() {
     // Count consecutive studied days ending today. If today isn't studied YET,
     // the streak is still alive — count back from yesterday (don't reset to 0).
-    let s = 0;
+    // Also records the run's first/last day, so the heat-map can outline it.
+    let s = 0, first = null, last = null;
     for (let i = days.length - 1; i >= 0; i--) {
       const ok = days[i].studied && days[i].total >= streakMin;
-      if (ok) { s++; }
+      if (ok) { s++; first = days[i].date; if (!last) last = days[i].date; }
       else if (i === days.length - 1) { continue; } // today not done yet
       else { break; }
     }
-    return s;
+    return { days: s, first, last };
   }
-  const streakDays = computeStreakDays();
+  const streak = computeStreakDays();
+  const streakDays = streak.days;
   const totalSessions = days.filter((d) => d.studied).length;
 
   // ---- pace / speed ----------------------------------------------------
@@ -394,6 +396,8 @@ export function buildAnki(raw, config) {
     hourly: raw.hourly || [], forecast: raw.forecast || [],
     projection: raw.projection || [], pending: raw.pending || [],
     streakDays, totalSessions,
+    // First/last day of the current run — the heat-map outlines these cells.
+    streakFrom: streak.first, streakTo: streak.last,
     startOfWeek, trend, period, periodTotals, topDays, goals, avgWeekly, pace, dayWindow,
     monthStats, monthSpan,
     fmt,
@@ -473,7 +477,7 @@ export function makeSampleRaw() {
   }));
 
   const forecast = [];
-  for (let k = 0; k < 62; k++) {                       // mirrors data.py FORECAST_DAYS
+  for (let k = 0; k < 93; k++) {                       // mirrors data.py FORECAST_DAYS
     const base = 150 * (1 - k * 0.012) * noise(0.18);
     const young = Math.max(0, Math.round(base * (0.42 - k * 0.004)));
     const matureDue = Math.max(0, Math.round(base * (0.58 + k * 0.004)));

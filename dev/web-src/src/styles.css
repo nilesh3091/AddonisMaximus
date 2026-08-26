@@ -91,8 +91,18 @@ html[data-theme="violet"], :host([data-theme="violet"]) {
   --ring-track: oklch(1 0 0 / 0.09);
   --glow: oklch(0.66 0.17 305 / 0.34);
 }
+/* Heat-map scale — the Review Heatmap add-on's "lime" ramp (GPL-3.0,
+   Glutanimate), ten steps instead of our old four. Dark surfaces run deep →
+   pale as the day gets busier; the light theme flips it (see daylight below). */
+:root, :host {
+  --heat-1: #1e6823; --heat-2: #2a7b2c; --heat-3: #378f36; --heat-4: #44a340; --heat-5: #5cae4c;
+  --heat-6: #74ba58; --heat-7: #8cc665; --heat-8: #a4d06f; --heat-9: #bddb7a; --heat-10: #d6e685;
+}
+
 /* Daylight: light */
 html[data-theme="daylight"], :host([data-theme="daylight"]) {
+  --heat-1: #d6e685; --heat-2: #bddb7a; --heat-3: #a4d06f; --heat-4: #8cc665; --heat-5: #74ba58;
+  --heat-6: #5cae4c; --heat-7: #44a340; --heat-8: #378f36; --heat-9: #2a7b2c; --heat-10: #1e6823;
   --bg: oklch(0.96 0.004 70);
   --bg2: oklch(0.92 0.005 70);
   --card: oklch(1 0 0);
