@@ -46,6 +46,31 @@ class AddonisMaximusDialog(QDialog):
             except Exception as e:
                 print("Addonis Maximus: save failed —", repr(e))
             return None
+        if cmd.startswith("addonismaximus:save_image:"):
+            try:
+                import base64
+                import os
+                from datetime import datetime
+                from pathlib import Path
+                from aqt.qt import QFileDialog
+                from aqt.utils import showInfo
+                data_uri = cmd[len("addonismaximus:save_image:"):]
+                if "," in data_uri:
+                    data = data_uri.split(",", 1)[1]
+                    img_data = base64.b64decode(data)
+                    
+                    downloads_dir = str(Path.home() / "Downloads")
+                    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                    default_path = os.path.join(downloads_dir, f"ankstats_share_{timestamp}.png")
+                    
+                    path, _ = QFileDialog.getSaveFileName(self, "Save Share Image", default_path, "Images (*.png)")
+                    if path:
+                        with open(path, "wb") as f:
+                            f.write(img_data)
+                        showInfo("Image saved successfully.")
+            except Exception as e:
+                print("Addonis Maximus: save_image failed —", repr(e))
+            return None
         if cmd == "addonismaximus:reload":
             raw = core.compute_raw(config_store.get_config(), force=True)
             if raw is not None:

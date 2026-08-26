@@ -175,7 +175,10 @@ body, :host {
 .range-toggle.disabled button.active { color: var(--text2); background: var(--ring-track); }
 
 /* grid — single narrow column in the window panel */
-.grid { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
+/* minmax(0, 1fr), not 1fr: a bare `1fr` track is floored by its items' min-content
+   width, so one wide card (the year heat-map) would stretch the whole column past
+   the page and take every other card with it. */
+.grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap); }
 
 /* card */
 .card {
@@ -232,6 +235,20 @@ body, :host {
 .fade { animation: fade .35s ease both; }
 @keyframes fade { from { opacity: 0; transform: translateY(6px);} to {opacity:1; transform:none;} }
 
+/* today, in the heat-map: an accent ring plus a slow halo, drawn on a pseudo
+   element so it layers over whatever inline ring the cell already carries
+   (hover, pinned, best-day) instead of fighting it. */
+.heat-today { position: relative; }
+.heat-today::after {
+  content: ""; position: absolute; inset: -2px; border-radius: inherit;
+  box-shadow: 0 0 0 1.5px var(--accent), 0 0 9px 2px var(--glow);
+  pointer-events: none; animation: heat-today-pulse 2.6s ease-in-out infinite;
+}
+@keyframes heat-today-pulse { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .heat-today::after { animation: none; opacity: 1; }
+}
+
 .empty-hint { color: var(--text3); font-size: 13px; text-align: center; padding: 40px 20px; line-height: 1.5; }
 .empty-hint b { color: var(--text2); }
 
@@ -254,14 +271,23 @@ body, :host {
    in embed.jsx), so bumping text size scales fonts, rings, charts and spacing
    together. */
 .embed-inner { zoom: var(--embed-zoom, 0.656); }
-/* Fixed carousel height: every card occupies the SAME vertical space, so flipping
-   between cards never resizes the host or shoves the page below up/down. Each card
-   stretches to fill (height:100%) and distributes its own content — sparse cards
-   centre, chart cards let the chart flex — so no view is ever left with dead space.
-   --embed-stage-h is set per density on the host (compact 320 / full 412). */
-.embed-stage { position: relative; touch-action: pan-y; height: var(--embed-stage-h, 320px); }
+/* One carousel height for the whole deck of cards, so flipping between them never
+   shoves the page below up/down. Each card stretches to fill (height:100%) and
+   distributes its own content — sparse cards centre, chart cards let the chart
+   flex — so no view is ever left with dead space.
+   --embed-stage-h is set on the host by embed.jsx from Settings → Appearance →
+   Card height. Single mode only — multi mode has no stage. */
+.embed-stage {
+  position: relative; touch-action: pan-y; height: var(--embed-stage-h, 320px);
+  transition: height .3s cubic-bezier(.2,.8,.2,1);
+}
+@media (prefers-reduced-motion: reduce) { .embed-stage { transition: none; } }
 .embed-stage > .fade { height: 100%; }
 .embed .card { height: 100%; overflow: hidden; }
+/* multi mode: no fixed stage, no clipping — the blocks set their own height.
+   Must follow `.embed .card`: same specificity, so source order decides, and
+   ahead of it this rule silently lost (leaving multi cards clipped). */
+.embed-multi .card { height: auto; overflow: visible; }
 /* body region that absorbs slack so content fills the stable card height */
 .card-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .card-body.center { justify-content: center; }
@@ -305,6 +331,41 @@ body, :host {
 .embed .tab .ti svg { width: 13px; height: 13px; }
 .embed .label { font-size: 11.5px; }
 .embed .label-sm { font-size: 10.5px; }
+
+/* --------- Multi view: the three stacked blocks (rings/graph/heat-map) -------- */
+/* Each block is its own natural height, separated by a hairline. The graph gets
+   an explicit chart height (there is no stage to fill), so the whole panel grows
+   and shrinks with its content. */
+.dash-body { gap: 0; }
+.dash-band { padding: 13px 0; border-top: 1px solid var(--border); }
+.dash-band:first-child { padding-top: 0; border-top: 0; }
+.dash-band:last-child { padding-bottom: 0; }
+.dash-goals, .dash-heat { flex: 0 0 auto; }
+.dash-trend { display: flex; flex-direction: column; gap: 12px; }
+.dash-trend-h { display: flex; align-items: center; }
+.dash-trend-h .tabs { min-width: 0; flex: 1 1 auto; }
+/* the window the graph covers ("Past 12 weeks") — right-aligned above the plot,
+   rather than beside the tabs, which need the band's full width at large text */
+.dash-trend-word { text-align: right; margin-bottom: 2px; }
+.dash-trend-row { flex: 1 1 auto; min-height: 0; display: flex; gap: 20px; align-items: stretch; }
+.dash-figures {
+  flex: 0 0 auto; width: 128px; display: flex; flex-direction: column;
+  justify-content: center; gap: 14px;
+}
+.dash-graph { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.dash-streak {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  font-family: var(--font-num);
+}
+.dash-streak .flame { color: var(--accent); display: inline-flex; }
+.dash-streak .num { font-size: 16px; font-weight: 800; color: var(--accent); }
+.dash .linky { color: var(--accent); cursor: pointer; }
+/* carousel density — tighter bands to match the heatmap's weight above */
+.embed .dash-band { padding: 10px 0; }
+.embed .dash-trend { gap: 8px; }
+.embed .dash-trend-row { gap: 16px; }
+.embed .dash-figures { width: 112px; gap: 10px; }
+.embed .dash-streak .num { font-size: 14px; }
 
 /* ======================= SETTINGS DRAWER ============================= */
 .scrim {

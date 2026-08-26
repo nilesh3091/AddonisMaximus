@@ -1,8 +1,8 @@
 /* Extra cards: Forecast, AnswerButtons, Hourly, You-vs-You, Deck maturity,
-   Pending today. `compact` shrinks sizes for the carousel. */
+   Pending today, Hours-left pace. `compact` shrinks sizes for the carousel. */
 import React from "react";
 import { Icon } from "./icons.jsx";
-import { Bars, Sparkbars, Sparkline, SPARK_MUTED, useBox, useMeasure } from "./charts.jsx";
+import { Bars, Sparkbars, Sparkline, SPARK_MUTED, useBox, useMeasure, TrendChart } from "./charts.jsx";
 
 // One thin cell per calendar day. Today is the bright accent; other studied days
 // a dimmer accent; missed days muted; days still ahead a faint placeholder so the
@@ -667,6 +667,229 @@ export function PendingCard({ anki, compact }) {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ========================= TIME SPENT =================================
+export function TimeSpentCard({ anki, range, chartType, compact }) {
+  const data = anki.trend(range, "timeSec");
+  const p = anki.period(range, "timeSec");
+  const fmt = anki.fmt;
+  const periodWord = range === "day" ? "Today" : range === "week" ? "This week" : "This month";
+  const trendWord = range === "day" ? "Past 14 days" : range === "week" ? "Past 12 weeks" : "Past 12 months";
+
+  return (
+    <div className="card">
+      <div className="card-h">
+        <div className="icon-title"><span style={{ color: "var(--accent)" }}><Icon name="clock" size={17} /></span><h2>Time Spent</h2></div>
+      </div>
+      <div className="card-body">
+        <div className="label" style={{ fontWeight: 700, color: "var(--text)", fontSize: compact ? 13 : 15, margin: compact ? "14px 0 2px" : "20px 0 2px" }}>{periodWord}</div>
+        <div className="stat-row">
+          <div className="stat fade">
+            <div className="label-sm">Time</div>
+            <div className="num big">{fmt.fmtDurShort(p.time)}</div>
+          </div>
+        </div>
+        
+        <div className="label-sm" style={{ margin: compact ? "10px 0 2px" : "14px 0 2px" }}>{trendWord}</div>
+        <div className="chart-fill">
+          <TrendChart data={data} range={range} type={chartType} fill
+            valueFmt={(v) => fmt.fmtDurShort(Math.round(v))} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ====================== PACE / HOURS LEFT =============================
+// One card, two readings of the same three speeds (min / avg / max cards-per-
+// hour from anki.pace() — see data.js for what counts as a session):
+//   Time  — "how long until I'm done?" : today's pending backlog ÷ each speed.
+//   Cards — "what can I still get through?" : the study time you realistically
+//           have left today (anki.dayWindow().studySec — NOT raw hours until
+//           rollover) × each speed.
+// Both render the same way: the hero is the answer at your average pace, and
+// the bar under it is the best-case → worst-case window with a marker where
+// the average lands.
+const PACE_TILES = [
+  { key: "min", label: "Slowest", color: "oklch(0.72 0.15 30)" },
+  { key: "avg", label: "Average", color: "var(--accent)" },
+  { key: "max", label: "Fastest", color: "oklch(0.74 0.16 150)" },
+];
+
+export function PaceCard({ anki, compact }) {
+  const fmt = anki.fmt;
+  const p = anki.pace();
+  const win = anki.dayWindow();
+  const rows = anki.pending || [];
+  const [mode, setMode] = React.useState("time");   // "time" = hours left, "cards" = cards left
+  const [deck, setDeck] = React.useState("");       // "" = all decks
+  const sel = deck && rows.some((r) => r.deck === deck) ? deck : "";
+  const scope = sel ? rows.filter((r) => r.deck === sel) : rows;
+  const remaining = scope.reduce((a, r) => a + (r.new || 0) + (r.learn || 0) + (r.review || 0), 0);
+
+  const hasPace = p.avg > 0 && p.samples > 0;
+  const rateTxt = (v) => Math.round(v).toLocaleString();
+  const dayLabel = (d) => (d ? fmt.fmtDate(d.date).replace(/, \d{4}$/, "") : "—");
+  const cardsMode = mode === "cards";
+
+  const header = (
+    <div className="card-h">
+      <div className="icon-title"><span style={{ color: "var(--accent)" }}><Icon name="gauge" size={17} /></span>
+        <h2>{cardsMode ? "Cards Left In Today" : "Hours Left"}</h2></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="seg" onPointerDown={(e) => e.stopPropagation()}>
+          <button className={cardsMode ? "" : "active"} onClick={() => setMode("time")}>Time</button>
+          <button className={cardsMode ? "active" : ""} onClick={() => setMode("cards")}>Cards</button>
+        </div>
+        {rows.length > 1 ? (
+          <select className="field" value={sel} aria-label="Deck to show"
+            onPointerDown={(e) => e.stopPropagation()}
+            onChange={(e) => setDeck(e.target.value)}
+            style={{ maxWidth: 150, fontSize: compact ? 11.5 : 12.5, padding: "4px 8px" }}>
+            <option value="">All decks</option>
+            {rows.map((r) => <option key={r.deck} value={r.deck}>{r.deck}</option>)}
+          </select>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (!hasPace) {
+    return (
+      <div className="card">
+        {header}
+        <div className="card-body center">
+          <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>
+            Not enough timed reviews yet — study a few sessions and your pace shows up here.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- the two readings of the same three speeds -----------------------
+  // time mode: the pending backlog ÷ each speed -> seconds
+  // cards mode: the study time you have left × each speed -> cards
+  const secAt = (rate) => (rate > 0 ? (remaining / rate) * 3600 : 0);
+  const cardsAt = (rate) => Math.round((win.studySec / 3600) * rate);
+  const done = remaining === 0;
+  const spent = win.studySec < 300;   // you're normally finished studying by now
+
+  // best case / typical / worst case, as whatever this mode measures
+  const best = cardsMode ? cardsAt(p.max) : secAt(p.max);
+  const typical = cardsMode ? cardsAt(p.avg) : secAt(p.avg);
+  const worst = cardsMode ? cardsAt(p.min) : secAt(p.min);
+  const show = (v) => (cardsMode ? Math.round(v).toLocaleString() : fmt.fmtDurShort(Math.round(v)));
+
+  // The bar always runs low → high in the units on screen, so the solid part is
+  // "you'll get at least this far": in time mode that's the fastest finish, in
+  // cards mode the count even at your slowest pace.
+  const lo = cardsMode ? worst : best;
+  const hi = cardsMode ? best : worst;
+  const span = hi || 1;
+  const pctOf = (v) => Math.max(0, Math.min(100, (v / span) * 100));
+  const solid = pctOf(lo), avgAt = pctOf(typical);
+
+  const heroNum = cardsMode ? (spent ? 0 : typical) : (done ? 0 : typical);
+  const heroCaption = cardsMode
+    ? (spent
+        ? "you're usually finished studying by now"
+        : "cards in the " + fmt.fmtDurShort(Math.round(win.studySec)) + " you'd normally still study")
+    : (done
+        ? "nothing left today 🎉"
+        : "left · " + remaining.toLocaleString() + " cards at your usual pace");
+  const heroZero = cardsMode ? spent : done;
+
+  const values = { min: p.min, avg: p.avg, max: p.max };
+  const subs = { min: dayLabel(p.slowest), avg: p.samples + " sessions", max: dayLabel(p.fastest) };
+
+  // Footer: in cards mode, hold the estimate up against what's actually waiting.
+  const footer = cardsMode ? (
+    remaining === 0 ? (
+      <>Nothing pending — <b style={{ color: "var(--text)" }}>{fmt.fmtDurShort(Math.round(win.toRollover))}</b> until the day rolls over.</>
+    ) : typical >= remaining ? (
+      <>Enough to clear all <b style={{ color: "var(--text)" }}>{remaining.toLocaleString()}</b> cards still pending, with room to spare.</>
+    ) : (
+      <>That's <b style={{ color: "var(--text)" }}>{Math.round((typical / remaining) * 100)}%</b> of the {remaining.toLocaleString()} still pending
+        {" "}· <b style={{ color: "var(--text)" }}>{fmt.fmtDurShort(Math.round(win.toRollover))}</b> until rollover</>
+    )
+  ) : (
+    <>You can do about <b style={{ color: "var(--text)" }}>{p.perSession.toLocaleString()} cards</b> in a typical{" "}
+      <b style={{ color: "var(--text)" }}>{fmt.fmtDurShort(p.sessionSec)}</b> session
+      {p.fastest ? <> · peak pace <b style={{ color: "var(--text)" }}>{p.fastest.total.toLocaleString()}</b> in {fmt.fmtDurShort(p.fastest.timeSec)}</> : null}</>
+  );
+
+  return (
+    <div className="card">
+      {header}
+      <div className="card-body spread">
+        {/* hero: the typical-pace answer */}
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
+            <div className="num" style={{ fontSize: compact ? 42 : 52, lineHeight: 1, color: heroZero ? "var(--text2)" : "var(--accent)" }}>
+              {show(heroNum)}
+            </div>
+            <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, color: "var(--text2)", fontSize: compact ? 12.5 : 13.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {heroCaption}
+            </div>
+          </div>
+          <div style={{ textAlign: "right", flex: "0 0 auto" }}>
+            <div className="num" style={{ fontSize: compact ? 16 : 19, lineHeight: 1 }}>
+              {cardsMode ? fmt.fmtDurShort(Math.round(win.studySec)) : rateTxt(p.avg)}
+            </div>
+            <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, marginTop: 2 }}>
+              {cardsMode ? "study time left" : "cards / hour"}
+            </div>
+          </div>
+        </div>
+
+        {/* the best-case → worst-case window for the same three speeds */}
+        <div>
+          <div style={{ position: "relative", height: compact ? 26 : 32 }}>
+            {/* track = the far end; solid = what you get even on a bad day;
+                the lighter tail is the spread between your fastest and slowest. */}
+            <div style={{ position: "absolute", inset: 0, borderRadius: 999, background: "var(--card2)" }} />
+            <div style={{
+              position: "absolute", top: 0, bottom: 0, left: solid + "%", width: Math.max(2, 100 - solid) + "%",
+              borderRadius: 999, background: "color-mix(in oklab, var(--accent) 22%, var(--card2))",
+            }} />
+            <div style={{
+              position: "absolute", top: 0, bottom: 0, left: 0, width: Math.max(2, solid) + "%",
+              borderRadius: 999, background: "linear-gradient(90deg, color-mix(in oklab, var(--accent) 78%, var(--card2)), var(--accent))",
+            }} />
+            <div style={{ position: "absolute", top: -3, bottom: -3, left: avgAt + "%", width: 3, marginLeft: -1.5, borderRadius: 2, background: "var(--text)", boxShadow: "0 0 0 2px var(--card)" }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+            <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>
+              {cardsMode ? "at slowest " + show(worst) : "fastest " + show(best)}
+            </span>
+            <span className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>
+              typical {show(typical)} · {cardsMode ? "at fastest " + show(best) : "slowest " + show(worst)}
+            </span>
+          </div>
+        </div>
+
+        {/* min / avg / max speed — the same engine behind both readings */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: compact ? 8 : 12 }}>
+          {PACE_TILES.map((t) => (
+            <div key={t.key} style={{ background: "var(--card2)", borderRadius: "var(--r-sm)", padding: compact ? "9px 11px" : "12px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: compact ? 4 : 6 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 3, background: t.color, flex: "0 0 auto" }} />
+                <span className="label" style={{ fontWeight: 700, color: "var(--text2)" }}>{t.label}</span>
+              </div>
+              <div className="num" style={{ fontSize: compact ? 19 : 24, lineHeight: 1 }}>
+                {rateTxt(values[t.key])}<span style={{ fontSize: "0.5em", color: "var(--text2)", fontWeight: 700 }}> /hr</span>
+              </div>
+              <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subs[t.key]}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="label-sm" style={{ textTransform: "none", letterSpacing: 0 }}>{footer}</div>
       </div>
     </div>
   );

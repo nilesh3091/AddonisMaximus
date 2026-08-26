@@ -2,7 +2,7 @@
    render identical cards from a section key. */
 import React from "react";
 import { GoalsCard, ActivityCard, StreakCard, OverviewCard } from "./cards-core.jsx";
-import { MonthCard, ForecastCard, AnswerButtonsCard, HourlyCard, BestDaysCard, MaturityCard, PendingCard } from "./cards-extra.jsx";
+import { MonthCard, ForecastCard, AnswerButtonsCard, HourlyCard, BestDaysCard, MaturityCard, PendingCard, TimeSpentCard, PaceCard } from "./cards-extra.jsx";
 
 export function renderCard(key, ctx) {
   const { anki, config, setConfig, range, chartType, onAddGoal, compact = false, streakBox } = ctx;
@@ -19,6 +19,8 @@ export function renderCard(key, ctx) {
     case "hourly": return <HourlyCard anki={anki} compact={c} />;
     case "bestDays": return <BestDaysCard anki={anki} compact={c} />;
     case "maturity": return <MaturityCard anki={anki} config={config} setConfig={setConfig} compact={c} />;
+    case "pace": return <PaceCard anki={anki} compact={c} />;
+    case "time": return <TimeSpentCard anki={anki} range={range} chartType={chartType} compact={c} />;
     default: return null;
   }
 }

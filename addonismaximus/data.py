@@ -2,7 +2,7 @@
 real Anki collection.
 
 `raw` contract (mirror of data.js):
-  { today, decks:[{name,retain}], days:[{date,dow,studied,reviews,newC,learning,
+  { today, dayCutoff, decks:[{name,retain}], days:[{date,dow,studied,reviews,newC,learning,
     relearning,total,timeSec,again,hard,good,easy,retention,deckSplit}],
     hourly, forecast,
     projection:[{deck,mature,young,new,introPerDay,typicalDays,samples,
@@ -191,6 +191,11 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "today": today_ms, "decks": decks, "allDecks": all_decks, "days": days, "hourly": hourly,
+        # End of the current Anki day (epoch ms) — the web layer divides the time
+        # left before this by your hour-of-day study pattern for the "cards you
+        # can still do today" estimate. Cached datasets can carry a stale cutoff,
+        # so buildAnki() rolls it forward if it has already passed.
+        "dayCutoff": day_cutoff * 1000,
         "forecast": forecast,
         "projection": projection, "pending": pending,
     }

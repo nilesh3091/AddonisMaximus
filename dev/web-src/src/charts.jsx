@@ -123,8 +123,8 @@ export function TrendChart({ data, height: heightProp = 190, fill = false, type 
         <svg width={W} height={height} onMouseLeave={() => setHover(null)} style={{ display: "block", cursor: "crosshair" }}>
           <defs>
             <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={accent} stopOpacity="0.34" />
-              <stop offset="100%" stopColor={accent} stopOpacity="0.02" />
+              <stop offset="0%" stopColor={accent} stopOpacity="0.5" />
+              <stop offset="100%" stopColor={accent} stopOpacity="0.0" />
             </linearGradient>
           </defs>
           {gridVals.map((gv, k) => (
@@ -147,20 +147,22 @@ export function TrendChart({ data, height: heightProp = 190, fill = false, type 
           ) : (
             <>
               <path d={areaPath} fill="url(#areaFill)" />
-              <path d={linePath} fill="none" stroke={accent} strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round" />
+              <path d={linePath} fill="none" stroke={accent} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
               {data.map((d, i) => {
                 const active = hover === i;
-                const last = i === n - 1;
                 return (
-                  <circle key={i} cx={x(i)} cy={y(d.value)} r={active ? 5 : last ? 4.5 : 3.4}
-                    fill={last && !active ? "var(--card)" : accent} stroke={accent} strokeWidth="2" />
+                  <g key={i}>
+                    {active && <circle cx={x(i)} cy={y(d.value)} r={11} fill={accent} opacity={0.25} />}
+                    <circle cx={x(i)} cy={y(d.value)} r={active ? 5.5 : 4.5}
+                      fill={active ? accent : "var(--card)"} stroke={accent} strokeWidth="2.5" />
+                  </g>
                 );
               })}
             </>
           )}
           {hover != null && (
             <line x1={type === "bar" ? xBar(hover) : x(hover)} x2={type === "bar" ? xBar(hover) : x(hover)}
-              y1={padT} y2={padT + innerH} stroke="var(--text3)" strokeWidth="1" strokeDasharray="3 3" />
+              y1={padT} y2={padT + innerH} stroke="var(--text2)" strokeWidth={type === "bar" ? 1 : 1.5} opacity={type === "bar" ? 1 : 0.8} strokeDasharray={type === "bar" ? "3 3" : "none"} />
           )}
           {labels.map((l, k) => {
             const lx = type === "bar" ? xBar(l.i) : x(l.i);
@@ -198,7 +200,7 @@ function Tooltip({ x, W, title, value }) {
 }
 
 function bucketTitle(date, range) {
-  if (range === "year") return date.getUTCFullYear();
+  if (range === "day") return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
   if (range === "month") return date.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
   // Week: show the full span (e.g. "Apr 13 – 19" or "Apr 27 – May 3") so it's
   // unambiguous which week the point covers.

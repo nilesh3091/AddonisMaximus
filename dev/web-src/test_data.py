@@ -91,7 +91,12 @@ cfg = {"data": {"matureThresholdDays": 21, "cutoffHour": None, "includeDecks": [
 raw = data.build_dataset(FakeCol(), cfg)
 
 # ---- assertions ----
-assert set(raw) == {"today", "decks", "allDecks", "days", "hourly", "forecast", "projection", "pending"}, raw.keys()
+assert set(raw) == {"today", "dayCutoff", "decks", "allDecks", "days", "hourly", "forecast", "projection", "pending"}, raw.keys()
+# dayCutoff (end of the Anki day, ms) drives the "cards you can still do today"
+# estimate — it must be in the future and within a day of now.
+import time as _time
+_now_ms = _time.time() * 1000
+assert _now_ms < raw["dayCutoff"] <= _now_ms + 86400000, raw["dayCutoff"]
 assert isinstance(raw["allDecks"], list) and all(isinstance(n, str) for n in raw["allDecks"]), raw["allDecks"]
 assert len(raw["days"]) == data.N_DAYS, len(raw["days"])
 assert len(raw["hourly"]) == 24

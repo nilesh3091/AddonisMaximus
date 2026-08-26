@@ -14,19 +14,32 @@ from aqt import mw
 CONFIG_VERSION = 1
 
 SECTION_KEYS = [
-    "goals", "activity", "overview", "month", "streak", "pending", "forecast",
-    "answerButtons", "hourly", "bestDays", "maturity",
+    "goals", "activity", "overview", "month", "streak", "pending", "pace",
+    "forecast", "answerButtons", "hourly", "bestDays", "maturity", "time",
 ]
+
+# Cards the carousel ships turned ON; everything else starts hidden. Listed by
+# key (not a slice of SECTION_KEYS) so inserting a card never silently hides a
+# different one. MUST stay in sync with config.js DEFAULT_VISIBLE.
+DEFAULT_VISIBLE = ["goals", "activity", "overview", "month", "streak", "pending"]
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "version": CONFIG_VERSION,
     # textScale multiplies the carousel zoom (1 = default). MUST stay in sync
     # with web-src/src/config.js DEFAULT_CONFIG.appearance.
-    "appearance": {"theme": "strava", "chart": "area", "corners": "round", "textScale": 1},
+    # viewMode: "multi" (the default view) = the three stacked blocks
+    # (rings / graph / heat-map), no swiping; "single" = the swipe carousel, one
+    # card at a time. stageHeight = the carousel's card height in pre-zoom px
+    # (single mode only).
+    "appearance": {"theme": "strava", "chart": "area", "corners": "round", "textScale": 1, "viewMode": "multi", "stageHeight": 320},
     # defaultCard = which card the carousel opens on (a section key); carousel-only.
-    # Default-hide everything past the first 6 (goals, activity, overview, month,
-    # streak, pending); the carousel ships lean and users enable the rest in Settings → Sections.
-    "sections": {"order": list(SECTION_KEYS), "hidden": list(SECTION_KEYS[6:]), "defaultCard": "overview"},
+    # The carousel ships lean — only DEFAULT_VISIBLE is on; users enable the rest
+    # in Settings → Cards & sections.
+    "sections": {
+        "order": list(SECTION_KEYS),
+        "hidden": [k for k in SECTION_KEYS if k not in DEFAULT_VISIBLE],
+        "defaultCard": "overview",
+    },
     # targetMode "average" tracks the user's recent weekly average for the source;
     # "fixed" uses weeklyTarget. weeklyTarget is kept as the Custom/fallback value.
     # MUST stay in sync with web-src/src/config.js DEFAULT_CONFIG.goals.

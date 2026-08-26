@@ -8,11 +8,12 @@ import { renderCard } from "./cardmap.jsx";
 import { SettingsDrawer } from "./settings.jsx";
 
 function RangeToggle({ value, onChange }) {
+  const labels = { day: "Days", week: "Weeks", month: "Month" };
   return (
     <div className="range-toggle">
-      {["week", "month", "year"].map((r) => (
+      {["day", "week", "month"].map((r) => (
         <button key={r} className={value === r ? "active" : ""} onClick={() => onChange(r)}>
-          {r[0].toUpperCase() + r.slice(1)}
+          {labels[r] || r[0].toUpperCase() + r.slice(1)}
         </button>
       ))}
     </div>
@@ -21,10 +22,9 @@ function RangeToggle({ value, onChange }) {
 
 export function App() {
   const { config, setConfig, anki } = useAddonisMaximusState();
-  // Range toggle persists via config.ui.range (shared with the carousel). Clamp
-  // to this view's options — the window has no "Day".
+  // Range toggle persists via config.ui.range (shared with the carousel).
   const stored = (config.ui && config.ui.range) || "week";
-  const range = ["week", "month", "year"].includes(stored) ? stored : "week";
+  const range = ["day", "week", "month"].includes(stored) ? stored : "week";
   const setRange = (r) => setConfig({ ...config, ui: { ...config.ui, range: r } });
   const [settingsOpen, setSettingsOpen] = React.useState(false);
 

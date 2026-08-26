@@ -11,6 +11,7 @@
  *
  *   raw = {
  *     today: <epoch ms, UTC midnight of the current Anki day>,
+ *     dayCutoff: <epoch ms when the Anki day rolls over>,
  *     decks: [{ name, retain }],
  *     days:  [{ date:<epoch ms>, dow, studied, reviews, newC, learning,
  *               relearning, total, timeSec, again, hard, good, easy,
@@ -99,7 +100,13 @@ export function buildAnki(raw, config) {
   // 12 weekly / 12 monthly / per-year buckets for one metric
   function trend(range, metricKey) {
     const buckets = [];
-    if (range === "week") {
+    if (range === "day") {
+      for (let i = 13; i >= 0; i--) {
+        const dDate = new Date(TODAY.getTime() - i * DAY);
+        const list = days.filter((d) => d.date.getTime() === dDate.getTime());
+        buckets.push({ label: dDate, value: sumDays(list, metricKey), time: sumDays(list, "timeSec"), retention: avgRetention(list) });
+      }
+    } else if (range === "week") {
       const thisWeekStart = startOfWeek(TODAY);
       for (let w = 11; w >= 0; w--) {
         const ws = new Date(thisWeekStart.getTime() - w * 7 * DAY);
@@ -111,15 +118,6 @@ export function buildAnki(raw, config) {
       for (let m = 11; m >= 0; m--) {
         const ref = new Date(Date.UTC(TODAY.getUTCFullYear(), TODAY.getUTCMonth() - m, 1));
         const next = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 1));
-        const list = days.filter((d) => d.date >= ref && d.date < next);
-        buckets.push({ label: ref, value: sumDays(list, metricKey), time: sumDays(list, "timeSec"), retention: avgRetention(list) });
-      }
-    } else {
-      const yNow = TODAY.getUTCFullYear();
-      const yMin = start.getUTCFullYear();
-      for (let y = yMin; y <= yNow; y++) {
-        const ref = new Date(Date.UTC(y, 0, 1));
-        const next = new Date(Date.UTC(y + 1, 0, 1));
         const list = days.filter((d) => d.date >= ref && d.date < next);
         buckets.push({ label: ref, value: sumDays(list, metricKey), time: sumDays(list, "timeSec"), retention: avgRetention(list) });
       }
@@ -249,6 +247,105 @@ export function buildAnki(raw, config) {
   const streakDays = computeStreakDays();
   const totalSessions = days.filter((d) => d.studied).length;
 
+  // ---- pace / speed ----------------------------------------------------
+  // Cards-per-hour drawn from the WHOLE history, for the "hours left" estimate.
+  //
+  //   avg  = all cards / all hours (a weighted rate, not a mean of daily rates,
+  //          so a 5-card day can't swing it)
+  //   min  = your slowest qualifying day, max = your fastest
+  //
+  // A day only qualifies as a real session (PACE_MIN_CARDS / PACE_MIN_SEC) —
+  // otherwise a 3-card day sets a nonsense record. Days averaging under a second
+  // per card are dropped as timing glitches. If almost nothing qualifies we fall
+  // back to every plausible day so a new user still gets a number.
+  const PACE_MIN_CARDS = 20;
+  const PACE_MIN_SEC = 180;
+  function pace() {
+    const rateOf = (d) => d.total / (d.timeSec / 3600);
+    const plausible = days.filter((d) => d.studied && d.total > 0 && d.timeSec > 0 && d.timeSec / d.total >= 1);
+    let pool = plausible.filter((d) => d.total >= PACE_MIN_CARDS && d.timeSec >= PACE_MIN_SEC);
+    if (pool.length < 3) pool = plausible;
+
+    const cards = plausible.reduce((a, d) => a + d.total, 0);
+    const sec = plausible.reduce((a, d) => a + d.timeSec, 0);
+    const avg = sec > 0 ? cards / (sec / 3600) : 0;
+
+    if (!pool.length) {
+      return { avg: 0, min: 0, max: 0, samples: 0, cards, sec, fastest: null, slowest: null, sessionSec: 0, perSession: 0 };
+    }
+    const sorted = pool.slice().sort((a, b) => rateOf(a) - rateOf(b));
+    const slowest = sorted[0];
+    const fastest = sorted[sorted.length - 1];
+    // Typical session length = median study time of a qualifying day. Times the
+    // average rate, that's the "card capability" of one normal sitting.
+    const times = pool.map((d) => d.timeSec).sort((a, b) => a - b);
+    const sessionSec = times[Math.floor(times.length / 2)];
+    const trim = (d) => ({ date: d.date, total: d.total, timeSec: d.timeSec, rate: rateOf(d) });
+    return {
+      avg, min: rateOf(slowest), max: rateOf(fastest), samples: pool.length,
+      cards, sec,
+      fastest: trim(fastest), slowest: trim(slowest),
+      sessionSec, perSession: Math.round((avg * sessionSec) / 3600),
+    };
+  }
+
+  // ---- what's left of today --------------------------------------------
+  // Two different clocks:
+  //   toRollover — raw seconds until the Anki day flips. Honest, but useless as a
+  //                study estimate: at 2pm with a 4am rollover that's 14 hours.
+  //   studySec   — the realistic slice of that. `share` is the fraction of a
+  //                typical day's reviews that still lies AHEAD of you at this
+  //                hour, read off your own hour-of-day pattern (raw.hourly, which
+  //                sums to 1 across the 24 hours). Multiplied by a typical day's
+  //                study time, that's how long you'd normally still study today.
+  //                Late at night the share collapses, which is the point.
+  // A cached dataset can carry a cutoff that has already passed, so we roll it
+  // forward; with no cutoff at all (browser preview) we assume a 4am rollover.
+  function dayWindow(nowMs) {
+    const now = nowMs != null ? nowMs : Date.now();
+    let cutoff = raw.dayCutoff || 0;
+    if (cutoff) {
+      while (cutoff <= now) cutoff += DAY;
+    } else {
+      const d = new Date(now);
+      d.setHours(4, 0, 0, 0);
+      cutoff = d.getTime();
+      if (cutoff <= now) cutoff += DAY;
+    }
+    const toRollover = Math.max(0, (cutoff - now) / 1000);
+
+    // Walk hour by hour from now to the cutoff, prorating the partial hours.
+    const hourly = raw.hourly || [];
+    let share = 0;
+    if (hourly.length === 24) {
+      let cur = now;
+      let guard = 0;
+      while (cur < cutoff && guard++ < 48) {
+        const d = new Date(cur);
+        const h = d.getHours();
+        const nextHour = new Date(cur);
+        nextHour.setMinutes(0, 0, 0);
+        const nextMs = nextHour.getTime() + 3600000;
+        const stop = Math.min(nextMs, cutoff);
+        share += (hourly[h].pct || 0) * ((stop - cur) / 3600000);
+        cur = stop;
+      }
+    }
+    share = Math.max(0, Math.min(1, share));
+
+    // A typical day's study time: median over the most recent 60 studied days,
+    // so a long-abandoned era of the collection doesn't set the expectation.
+    const studiedDays = days.filter((d) => d.studied && d.timeSec > 0);
+    const recent = studiedDays.slice(-60);
+    const times = (recent.length ? recent : studiedDays).map((d) => d.timeSec).sort((a, b) => a - b);
+    const typicalDaySec = times.length ? times[Math.floor(times.length / 2)] : 0;
+
+    return {
+      cutoff, toRollover, share, typicalDaySec,
+      studySec: Math.min(toRollover, typicalDaySec * share),
+    };
+  }
+
   // ---- goals (config-driven) ------------------------------------------
   // "day" scales from the weekly base by 1/7, exactly how month/year scale up.
   const RANGE_MULT = { day: 1 / 7, week: 1, month: 4.3, year: 52 };
@@ -297,7 +394,7 @@ export function buildAnki(raw, config) {
     hourly: raw.hourly || [], forecast: raw.forecast || [],
     projection: raw.projection || [], pending: raw.pending || [],
     streakDays, totalSessions,
-    startOfWeek, trend, period, periodTotals, topDays, goals, avgWeekly,
+    startOfWeek, trend, period, periodTotals, topDays, goals, avgWeekly, pace, dayWindow,
     monthStats, monthSpan,
     fmt,
   };
@@ -427,6 +524,10 @@ export function makeSampleRaw() {
 
   return {
     today: TODAY,
+    // Sample data is anchored to a fixed date, so a real cutoff here would land
+    // at an arbitrary hour. null makes buildAnki() assume a 4am rollover on the
+    // real clock, so the "rest of today" estimate previews sensibly in a browser.
+    dayCutoff: null,
     decks: DECKS.map((d) => ({ name: d.name, retain: d.retain })),
     allDecks: DECKS.map((d) => d.name),
     days, hourly, forecast, projection, pending,

@@ -31,15 +31,26 @@ Never hand-edit `addonismaximus/web/addonismaximus.js` — it's generated.
 ## 🎚️ Where to change the look / size (the usual ask)
 All in `dev/web-src/src/` (rebuild after editing):
 - **Master carousel size:** `styles.css` → `.embed-inner { zoom: var(--embed-zoom, 0.656) }`. The `0.656` base is the default; change it to re-baseline everyone. Higher = bigger, lower = smaller. **Start here.**
-- **User-facing size control:** Settings → Appearance → **Text size** (`appearance.textScale`, default 1). `embed.jsx` sets `--embed-zoom = 0.656 × textScale` on the host, so it scales fonts, rings, charts and spacing together. Presets live in `TEXT_SIZES` (`settings.jsx`); keep `textScale` in `config.js` **and** `config_store.py` defaults in sync.
+- **User-facing size control:** Settings → Appearance → **Text size** (`appearance.textScale`, default 1). `embed.jsx` sets `--embed-zoom = 0.656 × textScale` **in render**, as an inline style on `.embed-inner` (not poked onto the host in an effect) — so a new zoom is committed before the cards' layout effects measure their column; set after paint, anything that sizes itself from a measurement (the heat-map) stays laid out for the previous text size. It scales fonts, rings, charts and spacing together. Presets live in `TEXT_SIZES` (`settings.jsx`); keep `textScale` in `config.js` **and** `config_store.py` defaults in sync.
 - **Carousel width:** `styles.css` → `.embed { max-width: 680px }`.
+- **Carousel height:** Settings → Appearance → **Card height** (`appearance.stageHeight`, default `320`, presets in `CARD_HEIGHTS` in `settings.jsx`) → `--embed-stage-h`. Single mode only. Keep `stageHeight` in `config.js` **and** `config_store.py` in sync.
+- **Year heat-map:** responsive by construction — `computeHeatmap` (`cards-core.jsx`) solves the cell size from the measured column so the calendar always fills it; the `box` a caller passes is the *ceiling*, `HEAT_MIN_BOX` (7) the floor, and only below that floor does it drop the oldest month. The window is `HEAT_MONTHS` (11) trailing months plus a month-wide empty buffer (`HEAT_BUF_COLS`) after the newest one, so today never sits against the right edge — the buffer is paid for out of history, and it scales with the cells because it is costed in columns, not pixels. The measured wrapper carries `contain: inline-size` — load-bearing, since the window's card column is a content-sized grid track and the calendar would otherwise feed its own width back into it. Hover/tap a day for a tooltip (Today / Best day badge · date · cards · time · retention) drawn by `HeatCalendar`, shared by the Streak card and the heat-map panel; today's cell gets a pulsing accent halo from `.heat-today` in `styles.css` (drawn on `::after` so it layers over the hover/pinned/best-day rings instead of fighting them).
 - **Per-card element sizes:** the `compact` prop drives smaller rings/numbers/charts. Ternaries live in `cards-core.jsx` (Goals rings & numbers, Activity chart height, Streak calendar cells) and `cards-extra.jsx` (Forecast/Hourly/FSRS/DeckBoard/Records/Achievements). `compact` is `true` only in the carousel, `false` in the window.
 - **Compact class-based sizes** (padding, titles, labels, tabs, top bar): the `.embed …` block near the bottom of `styles.css`.
 - **Colors / theme tokens:** `:root, :host` blocks in `styles.css` (OKLCH). The carousel overrides neutral surfaces at runtime to match Anki's background — see `applyAnkiSurfaces()` in `embed.jsx`.
 
-Carousel cards are **fixed height**: `.embed-stage { height: var(--embed-stage-h) }` (set to 320px in `embed.jsx`) with `.embed .card { height: 100%; overflow: hidden }` — so flipping cards never resizes the page, but anything past 320px (pre-zoom units) is **clipped**. Design carousel cards to fit; use width (multi-column layouts) instead of stacking tall. The window mode is natural height.
+**Single-mode** cards are **fixed height**: `.embed-stage { height: var(--embed-stage-h) }` with `.embed .card { height: 100%; overflow: hidden }` — so flipping cards never resizes the page, but anything past that height (pre-zoom units) is **clipped**. Design carousel cards to fit; use width (multi-column layouts) instead of stacking tall. Window mode and multi mode are natural height.
 
 ---
+
+## 🔀 View modes (`appearance.viewMode`)
+The carousel host renders one of two things (`embed.jsx`):
+- **`"multi"`** (default) — no carousel. `MultiView` (`cards-core.jsx`) stacks **three blocks**: goal rings → trend graph → 12-month heat-map, each a `.dash-band`, panel at natural height.
+- **`"single"`** — the swipe carousel: one enabled section at a time, arrows / dots / swipe, fixed stage height.
+
+Blocks are rendered by key through `renderBlock(key, ctx)`, and `MultiView` takes the list as a `blocks` prop defaulting to `MULTI_BLOCKS`. **To let users choose what goes in each slot**, add a `appearance.blocks` array to both configs and pass it in — no other change needed. `BLOCK_META` already carries the labels/icons for such a picker.
+
+Blocks reuse the card internals rather than copying them: `GoalRings` is shared with `GoalsCard`, and `HeatmapPanel` is shared with `OverviewCard` (`showHeader={false}` in multi, since the streak sits in the panel header).
 
 ## File map
 ```
@@ -71,15 +82,16 @@ dev/                     NOT shipped — nothing under dev/ goes in the upload z
 
 ## Data
 - Real data is ON: `core.USE_REAL_DATA = True`. Any query failure falls back to JS sample data, so the panel never breaks.
-- `data.py build_dataset(col, cfg)` → `raw = {today, decks, days[], hourly, forecast, fsrs, records, achievements}`, cached on collection mod-time (so the home screen doesn't rescan every render).
+- `data.py build_dataset(col, cfg)` → `raw = {today, dayCutoff, decks, allDecks, days[], hourly, forecast, projection, pending}`, cached on collection mod-time (so the home screen doesn't rescan every render).
 - Aggregation (trend / period / goals / streak / deckBoard) is in **JS** `buildAnki()` (`data.js`), run on the injected `raw`.
+- `pace()` (cards/hour: weighted average + slowest/fastest qualifying day + per-session capability) and `dayWindow()` (study time realistically left today = a typical day's minutes × the share of your hour-of-day pattern still ahead, capped by `dayCutoff`) power the **Hours Left** card — both are JS-side, no extra collection queries.
 - **FSRS** (most sensitive — validate against a real collection): stability/difficulty from `cards.data` JSON (`$.s`/`$.d`), retrievability via forgetting curve with decay −0.5.
 - Streak counts back from today; a not-yet-studied today does NOT reset it.
 - Offline logic test (no Anki): `python3 dev/web-src/test_data.py` — `data.py` has no `aqt` imports, so a fake collection drives it.
 
 ## Settings (gear icon)
-Web drawer (`settings.jsx`) → `pycmd("addonismaximus:save:<json>")` → `config_store.py` (Anki `config.json`). Controls: section show/hide + order, goals (targets + custom goals), appearance (theme/chart/corners), data (decks / cutoff hour / mature threshold / streak min).
-**Keep `config_store.py` DEFAULT_CONFIG and `config.js` DEFAULT_CONFIG in sync.**
+Web drawer (`settings.jsx`) → `pycmd("addonismaximus:save:<json>")` → `config_store.py` (Anki `config.json`). Controls: section show/hide + order, goals (targets + custom goals), appearance (theme / text size / card height / chart / corners), data (decks / cutoff hour / mature threshold / streak min).
+**Keep `config_store.py` DEFAULT_CONFIG and `config.js` DEFAULT_CONFIG in sync** — including `SECTION_KEYS`↔`SECTIONS` and `DEFAULT_VISIBLE` (which cards ship enabled; listed by key on both sides so inserting a card never silently hides a different one).
 
 ## JS ↔ Python bridge
 pycmd messages: `addonismaximus:save:<json>`, `addonismaximus:reload`, `addonismaximus:log:<msg>` (debug).

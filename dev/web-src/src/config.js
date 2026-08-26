@@ -19,12 +19,19 @@ export const SECTIONS = [
   { key: "month", label: "Month in Review", icon: "calendar" },
   { key: "streak", label: "Streak calendar", icon: "flame" },
   { key: "pending", label: "Pending today", icon: "cards" },
+  { key: "pace", label: "Hours left (pace)", icon: "gauge" },
   { key: "forecast", label: "Forecast", icon: "calendar" },
   { key: "answerButtons", label: "Answer buttons", icon: "gauge" },
   { key: "hourly", label: "When you study best", icon: "clock" },
   { key: "bestDays", label: "You vs You (best days)", icon: "bolt" },
   { key: "maturity", label: "Deck maturity ETA", icon: "seedling" },
+  { key: "time", label: "Time spent", icon: "clock" },
 ];
+
+// Cards the carousel ships turned ON. Everything else in SECTIONS starts hidden
+// and is enabled in Settings → Cards & sections. Listed by key (not a slice of
+// SECTIONS) so inserting a card never silently hides a different one.
+export const DEFAULT_VISIBLE = ["goals", "activity", "overview", "month", "streak", "pending"];
 
 export const GOAL_SOURCES = [
   { value: "total", label: "Cards studied", unit: "count" },
@@ -38,12 +45,16 @@ export const DEFAULT_CONFIG = {
   version: 1,
   // textScale multiplies the carousel zoom (1 = default size). The Text size
   // control in Settings sets it; everything scales proportionally.
-  appearance: { theme: "strava", chart: "area", corners: "round", textScale: 1 },
+  // viewMode: "multi" (the default view) = the three stacked blocks
+  // (rings / graph / heat-map), no swiping; "single" = the swipe carousel, one
+  // card at a time. stageHeight is the carousel's card height in pre-zoom px
+  // (single mode only).
+  appearance: { theme: "strava", chart: "area", corners: "round", textScale: 1, viewMode: "multi", stageHeight: 320 },
   sections: {
     order: SECTIONS.map((s) => s.key),
-    // Default-hide everything past the first 6 (goals, activity, overview, month,
-    // streak, pending). The carousel ships lean; users turn the rest on in Settings → Sections.
-    hidden: SECTIONS.slice(6).map((s) => s.key),
+    // The carousel ships lean — only DEFAULT_VISIBLE is on; users turn the rest
+    // on in Settings → Cards & sections.
+    hidden: SECTIONS.map((s) => s.key).filter((k) => !DEFAULT_VISIBLE.includes(k)),
     // Which card the home-screen carousel opens on (a section key). Falls back to
     // the first visible card if this one is hidden/unknown. Carousel-only.
     defaultCard: "overview",

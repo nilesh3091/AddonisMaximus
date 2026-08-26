@@ -4,6 +4,7 @@
 import React from "react";
 import { Icon } from "./icons.jsx";
 import { SECTIONS, GOAL_SOURCES } from "./config.js";
+import { ankiLogoUrl } from "./anki_b64.js";
 
 const THEMES = [
   { value: "strava", label: "Strava (orange)" },
@@ -19,6 +20,15 @@ const TEXT_SIZES = [
   { value: 1, label: "Default" },
   { value: 1.2, label: "Large" },
   { value: 1.4, label: "Extra large" },
+];
+
+// How tall each carousel card is, in pre-zoom px (the zoom from Text size still
+// applies on top). Cards that need more room — the Dashboard — raise this on
+// their own, so "Standard" never truncates them.
+const CARD_HEIGHTS = [
+  { value: 320, label: "Standard" },
+  { value: 420, label: "Tall" },
+  { value: 520, label: "Taller" },
 ];
 
 const ICON_FOR_SOURCE = { total: "layers", reviews: "repeat", newC: "plus", time: "clock", daysStudied: "check" };
@@ -136,6 +146,15 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
           {/* ---------------- Appearance ---------------- */}
           <Section title="Appearance">
             <div className="set-row">
+              <div>
+                <div className="set-label">View mode</div>
+                <div className="set-desc">Multi stacks the goal rings, graph and heat-map together</div>
+              </div>
+              <Seg value={config.appearance.viewMode === "multi" ? "multi" : "single"}
+                options={[{ value: "single", label: "Single card" }, { value: "multi", label: "Multi" }]}
+                onChange={(v) => setAppearance("viewMode", v)} />
+            </div>
+            <div className="set-row">
               <div><div className="set-label">Theme</div></div>
               <select className="field" value={config.appearance.theme} onChange={(e) => setAppearance("theme", e.target.value)}>
                 {THEMES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -148,6 +167,15 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
               </div>
               <select className="field" value={String(config.appearance.textScale ?? 1)} onChange={(e) => setAppearance("textScale", Number(e.target.value))}>
                 {TEXT_SIZES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+            <div className="set-row">
+              <div>
+                <div className="set-label">Card height</div>
+                <div className="set-desc">Single-card mode only — more room per card</div>
+              </div>
+              <select className="field" value={String(config.appearance.stageHeight ?? 320)} onChange={(e) => setAppearance("stageHeight", Number(e.target.value))}>
+                {CARD_HEIGHTS.map((h) => <option key={h.value} value={h.value}>{h.label}</option>)}
               </select>
             </div>
             <div className="set-row">
@@ -256,6 +284,11 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
             )}
           </Section>
 
+          {/* ---------------- Share ---------------- */}
+          <Section title="Share">
+            <ShareSection anki={anki} />
+          </Section>
+
         </div>
       </div>
     </>
@@ -303,6 +336,202 @@ function GoalEditor({ g, anki, onLabel, onSource, onTarget, onMode, onDelete }) 
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ShareSection({ anki }) {
+  const [period, setPeriod] = React.useState("day");
+  const [offset, setOffset] = React.useState(0);
+  const [selectedStats, setSelectedStats] = React.useState({
+    cards: true, retention: true, time: true, 
+    newCards: true, streak: true, speed: true
+  });
+  const canvasRef = React.useRef(null);
+
+  const handlePeriodChange = (p) => {
+    setPeriod(p);
+    setOffset(0);
+  };
+
+  // Compute period boundaries and label
+  let list = [];
+  let periodLabel = "";
+  if (anki) {
+    if (period === "day") {
+      const dDate = new Date(anki.TODAY.getTime() + offset * 86400000);
+      list = anki.days.filter((d) => d.date.getTime() === dDate.getTime());
+      periodLabel = anki.fmt.fmtDate(dDate);
+      if (offset === 0) periodLabel = "Today";
+      else if (offset === -1) periodLabel = "Yesterday";
+    } else if (period === "week") {
+      const ws = new Date(anki.startOfWeek(anki.TODAY).getTime() + offset * 7 * 86400000);
+      const we = new Date(ws.getTime() + 7 * 86400000);
+      list = anki.days.filter((d) => d.date >= ws && d.date < we);
+      periodLabel = "Week of " + anki.fmt.fmtDate(ws);
+      if (offset === 0) periodLabel = "This Week";
+      else if (offset === -1) periodLabel = "Last Week";
+    } else { // month
+      const ref = new Date(Date.UTC(anki.TODAY.getUTCFullYear(), anki.TODAY.getUTCMonth() + offset, 1));
+      const next = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 1));
+      list = anki.days.filter((d) => d.date >= ref && d.date < next);
+      periodLabel = anki.fmt.monthYearFull(ref);
+      if (offset === 0) periodLabel = "This Month";
+      else if (offset === -1) periodLabel = "Last Month";
+    }
+  }
+
+  React.useEffect(() => {
+    if (!canvasRef.current || !anki) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    
+    // Size: 1080x1920
+    const w = 1080;
+    const h = 1920;
+    canvas.width = w;
+    canvas.height = h;
+
+    // Solid dark background to prevent text from disappearing against white backgrounds (e.g. Photos app)
+    ctx.fillStyle = "#1c1c1e";
+    ctx.fillRect(0, 0, w, h);
+
+    // Get stats from filtered list
+    const total = list.reduce((a, d) => a + (d.total || 0), 0);
+    const timeSec = list.reduce((a, d) => a + (d.timeSec || 0), 0);
+    const newC = list.reduce((a, d) => a + (d.newC || 0), 0);
+    let rev = 0, again = 0;
+    list.forEach(d => { rev += d.reviews || 0; again += d.again || 0; });
+    const retention = rev > 0 ? (rev - again) / rev : 0;
+    const speed = total > 0 ? timeSec / total : 0;
+    // Streak is kept as current overall streak unless we want to compute it backwards,
+    // which is complex. Using the global current streak is fine.
+    const streak = anki.streakDays || 0;
+
+    // Format stats based on selection
+    const statsToDraw = [];
+    if (selectedStats.cards) statsToDraw.push({ label: "Cards", value: total.toLocaleString() });
+    if (selectedStats.retention) statsToDraw.push({ label: "Retention", value: (retention * 100).toFixed(1) + "%" });
+    if (selectedStats.time) statsToDraw.push({ label: "Time", value: anki.fmt.fmtDurShort(timeSec) });
+    if (selectedStats.newCards) statsToDraw.push({ label: "New Cards", value: newC.toLocaleString() });
+    if (selectedStats.streak) statsToDraw.push({ label: "Streak", value: streak + " days" });
+    if (selectedStats.speed) statsToDraw.push({ label: "Speed", value: speed > 0 ? speed.toFixed(1) + "s/c" : "0s/c" });
+
+    // Fonts and Colors
+    ctx.fillStyle = "#ffffff";
+    const boldFont = "800 64px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+    const labelFont = "800 42px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+    
+    // Draw Logo (Anki logo from Downloads)
+    const img = new Image();
+    img.src = ankiLogoUrl;
+    img.onload = () => {
+      // Draw centered in the top half
+      ctx.drawImage(img, w / 2 - 128, h / 2 - 350, 256, 256);
+    };
+
+    // Draw Period Label
+    ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+    ctx.font = "600 42px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(periodLabel, w / 2, h / 2 - 20);
+
+    // Draw Stats Grid (up to 2 rows, 3 columns depending on how many selected)
+    const cols = [120, 450, 780];
+    const rows = [h / 2 + 100, h / 2 + 280, h / 2 + 460]; // shifted down slightly for label
+    
+    for (let i = 0; i < statsToDraw.length; i++) {
+      const col = cols[i % 3];
+      const row = rows[Math.floor(i / 3)];
+      
+      ctx.textAlign = "left";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.font = labelFont;
+      ctx.fillText(statsToDraw[i].label, col, row);
+      
+      ctx.fillStyle = "#ffffff";
+      ctx.font = boldFont;
+      ctx.fillText(statsToDraw[i].value, col, row + 70);
+    }
+
+  }, [period, offset, selectedStats, anki, list, periodLabel]);
+
+  const handleDownload = () => {
+    if (!canvasRef.current) return;
+    const dataUri = canvasRef.current.toDataURL("image/png");
+    if (window.pycmd) {
+      window.pycmd("addonismaximus:save_image:" + dataUri);
+    } else {
+      // Fallback for browser testing
+      const a = document.createElement("a");
+      a.href = dataUri;
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      a.download = "ankstats_share_" + ts + ".png";
+      a.click();
+    }
+  };
+
+  const toggleStat = (key) => setSelectedStats(s => ({ ...s, [key]: !s[key] }));
+
+  return (
+    <div className="share-section" style={{ paddingBottom: 10 }}>
+      <div className="set-desc" style={{ marginBottom: 16 }}>
+        Export a transparent sticker of your stats to share on Instagram or Snapchat.
+      </div>
+      <div className="set-row" style={{ marginBottom: 16 }}>
+        <div><div className="set-label">Range Type</div></div>
+        <Seg value={period} options={[
+          { value: "day", label: "Day" },
+          { value: "week", label: "Week" },
+          { value: "month", label: "Month" }
+        ]} onChange={handlePeriodChange} />
+      </div>
+      
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, padding: "8px 12px", background: "rgba(0,0,0,0.05)", borderRadius: 8 }}>
+        <button className="iconbtn" onClick={() => setOffset(o => o - 1)} aria-label="Previous"><Icon name="chevronL" size={20} /></button>
+        <span style={{ fontWeight: 600 }}>{periodLabel}</span>
+        <button className="iconbtn" onClick={() => setOffset(o => Math.min(0, o + 1))} disabled={offset >= 0} style={{ opacity: offset >= 0 ? 0.3 : 1 }} aria-label="Next"><Icon name="chevronR" size={20} /></button>
+      </div>
+      
+      <div className="set-label" style={{ marginBottom: 8 }}>Included Stats</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px", marginBottom: 24 }}>
+        {[
+          { key: "cards", label: "Cards" },
+          { key: "retention", label: "Retention" },
+          { key: "time", label: "Time" },
+          { key: "newCards", label: "New Cards" },
+          { key: "streak", label: "Streak" },
+          { key: "speed", label: "Speed" },
+        ].map(s => (
+          <div key={s.key} className="set-row" style={{ padding: "4px 0" }}>
+            <span className="set-name">{s.label}</span>
+            <Switch on={selectedStats[s.key]} onChange={() => toggleStat(s.key)} label={"Include " + s.label} />
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+        <div style={{ 
+          width: "100%", 
+          maxWidth: 240, 
+          aspectRatio: "1080/1920",
+          background: "linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%, #eee), linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%, #eee)",
+          backgroundSize: "20px 20px",
+          backgroundPosition: "0 0, 10px 10px",
+          backgroundColor: "#ccc",
+          borderRadius: 12,
+          overflow: "hidden",
+          border: "1px solid rgba(0,0,0,0.1)"
+        }}>
+          <canvas 
+            ref={canvasRef} 
+            style={{ width: "100%", height: "100%", display: "block" }} 
+          />
+        </div>
+        <button className="btn-add" onClick={handleDownload} style={{ width: "100%", justifyContent: "center" }}>
+          <Icon name="download" size={16} /> Download Image
+        </button>
       </div>
     </div>
   );

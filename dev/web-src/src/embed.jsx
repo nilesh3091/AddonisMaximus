@@ -7,15 +7,17 @@ import React from "react";
 import { Icon } from "./icons.jsx";
 import { useAddonisMaximusState, visibleSections } from "./useAddonisMaximus.jsx";
 import { renderCard } from "./cardmap.jsx";
+import { MultiView } from "./cards-core.jsx";
 import { SettingsDrawer } from "./settings.jsx";
 
-function RangeToggle({ value, onChange, disabled, options = ["week", "month", "year"] }) {
+function RangeToggle({ value, onChange, disabled, options = ["day", "week", "month"] }) {
+  const labels = { day: "Days", week: "Weeks", month: "Month" };
   return (
     <div className={"range-toggle" + (disabled ? " disabled" : "")}
       title={disabled ? "This view isn’t affected by the time range" : undefined}>
       {options.map((r) => (
         <button key={r} className={value === r ? "active" : ""} disabled={disabled} onClick={() => !disabled && onChange(r)}>
-          {r[0].toUpperCase() + r.slice(1)}
+          {labels[r] || r[0].toUpperCase() + r.slice(1)}
         </button>
       ))}
     </div>
@@ -23,9 +25,11 @@ function RangeToggle({ value, onChange, disabled, options = ["week", "month", "y
 }
 
 // Cards whose contents actually change with the Week/Month/Year range.
-const RANGE_CARDS = new Set(["goals", "activity", "overview", "answerButtons"]);
-// Only Goals offers a daily period — kept off every other card by request.
-const DAY_CARDS = new Set(["goals"]);
+const RANGE_CARDS = new Set(["goals", "activity", "overview", "answerButtons", "time"]);
+
+// Single mode gives every card the same stage height, so flipping between them
+// never resizes Anki's page. Settings → Appearance → Card height sets it.
+const DEFAULT_STAGE_H = 320;
 
 // Make the embed's card surfaces blend into Anki's page instead of being dark
 // boxes. We keep the theme's accent; only the neutral surfaces are overridden.
@@ -90,12 +94,6 @@ export function EmbeddedApp({ host }) {
     if (!host) return;
     host.setAttribute("data-theme", config.appearance.theme);
     host.setAttribute("data-radius", config.appearance.corners === "sharp" ? "sharp" : "round");
-    // Lock the carousel to one height so flipping cards never resizes the page.
-    host.style.setProperty("--embed-stage-h", "320px");
-    // Text size: scale the single carousel zoom so fonts, rings, charts and
-    // spacing all grow/shrink together. base 0.656 × multiplier (default 1).
-    const scale = Number(config.appearance.textScale) || 1;
-    host.style.setProperty("--embed-zoom", String(0.656 * scale));
     applyAnkiSurfaces(host);
   }, [host, config.appearance]);
 
@@ -103,11 +101,23 @@ export function EmbeddedApp({ host }) {
   const n = visible.length;
   const safeIdx = n ? Math.min(idx, n - 1) : 0;
   const cur = visible[safeIdx];
-  const supportsDay = DAY_CARDS.has(cur);
-  // Goals gets a daily period; clamp "day" to "week" for any other card so they
-  // never receive a range they don't render.
-  const rangeOptions = supportsDay ? ["day", "week", "month", "year"] : ["week", "month", "year"];
-  const effRange = (range === "day" && !supportsDay) ? "week" : range;
+  const rangeOptions = ["day", "week", "month"];
+  const effRange = (range === "year") ? "month" : range;
+  // "multi" drops the carousel entirely for three stacked blocks; the panel is
+  // then natural height, so the stage height only matters in single mode.
+  const multi = config.appearance.viewMode === "multi";
+  const stageH = Number(config.appearance.stageHeight) || DEFAULT_STAGE_H;
+  // Text size: scale the single carousel zoom so fonts, rings, charts and spacing
+  // all grow/shrink together. base 0.656 × multiplier (default 1). It rides on the
+  // element in *render* rather than being poked onto the host in an effect, so a
+  // new zoom is committed before the cards' layout effects measure their column —
+  // set after paint, everything that sizes itself from a measurement (the heat-map
+  // above all) would still be laid out for the previous text size.
+  const zoom = 0.656 * (Number(config.appearance.textScale) || 1);
+
+  React.useEffect(() => {
+    if (host) host.style.setProperty("--embed-stage-h", stageH + "px");
+  }, [host, stageH]);
 
   const go = (d) => setIdx((prev) => { const c = n ? Math.min(prev, n - 1) : 0; return n ? (c + d + n) % n : 0; });
   const onPointerDown = (e) => { dragX.current = e.clientX; };
@@ -123,14 +133,19 @@ export function EmbeddedApp({ host }) {
 
   return (
     <div className="embed blend">
-      <div className="embed-inner">
+      <div className="embed-inner" style={{ "--embed-zoom": zoom }}>
         <div className="embed-bar">
           <button className="gearbtn" onClick={openSettings} aria-label="Open settings" title="Settings"><Icon name="gear" size={19} /></button>
           <div className="spacer" />
-          <RangeToggle value={effRange} onChange={setRange} disabled={!RANGE_CARDS.has(cur)} options={rangeOptions} />
+          <RangeToggle value={effRange} onChange={setRange} disabled={!multi && !RANGE_CARDS.has(cur)} options={rangeOptions} />
         </div>
 
-        {n === 0 ? (
+        {multi ? (
+          <div className="embed-multi">
+            <MultiView anki={anki} range={effRange} chartType={config.appearance.chart}
+              onAddGoal={openSettings} compact />
+          </div>
+        ) : n === 0 ? (
           <div className="card"><div className="empty-hint">No cards enabled. Open <b>Settings</b> (gear) to turn some on.</div></div>
         ) : (
           <>
