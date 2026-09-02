@@ -15,6 +15,11 @@ USE_REAL_DATA = True
 # render — only when the collection changes or the data scope (decks/cutoff…) does.
 _cache = {"key": None, "raw": None}
 
+# The only config["data"] keys build_dataset reads (data.py). streakMinCards is
+# applied entirely in the JS layer, so keying the cache on it would throw away a
+# perfectly good dataset and force a full rescan for an identical result.
+_PY_DATA_KEYS = ("includeDecks", "cutoffHour", "matureThresholdDays", "excludeSuspended")
+
 
 def web_base() -> str:
     return f"/_addons/{mw.addonManager.addonFromModule(__name__)}/web"
@@ -41,10 +46,23 @@ def _cache_key(cfg):
     except Exception:
         mod = None
     try:
-        scope = json.dumps((cfg or {}).get("data"), sort_keys=True)
+        d = (cfg or {}).get("data") or {}
+        scope = json.dumps({k: d.get(k) for k in _PY_DATA_KEYS}, sort_keys=True)
     except Exception:
         scope = ""
-    return (mod, scope)
+    # The day rollover writes nothing to the collection — sched.today and
+    # day_cutoff are derived from the collection's creation time plus the wall
+    # clock — so `mod` is identical either side of it. Without the day in the
+    # key, a blob built yesterday keeps being served on any re-render that
+    # happens with no collection write in between (clicking Decks in the
+    # morning, pressing "d"), and the panel renders yesterday: the "Today" halo
+    # sits on the wrong cell and Forecast day 0 is yesterday's due set, right
+    # beside Anki's own freshly-counted deck rows.
+    try:
+        day = mw.col.sched.today
+    except Exception:
+        day = None
+    return (mod, scope, day)
 
 
 def compute_raw(cfg, force=False):

@@ -21,6 +21,13 @@ class FakeDecks:
 
 class FakeDB:
     def all(self, sql, *params):
+        # This fake matches on SQL substrings and otherwise ignores WHERE
+        # clauses, so honour the one predicate whose whole point is to return
+        # nothing — _deck_where's "no live deck matches your filter" case.
+        # Without this the fake would happily hand back the entire collection
+        # for a query real SQLite answers with zero rows.
+        if "1=0" in sql:
+            return []
         if "SELECT id, did FROM cards" in sql:
             return [(10, 2), (11, 3), (12, 4), (13, 1)]
         if "MIN(id) FROM revlog WHERE type IN" in sql:   # first review per card
@@ -150,6 +157,41 @@ assert pend[1] == {"deck": "Anatomy", "new": 3, "learn": 0, "review": 10}, pend[
 raw_jp = data.build_dataset(FakeCol(), {"data": {"matureThresholdDays": 21, "cutoffHour": None,
                                                  "includeDecks": ["日本語 Core"], "streakMinCards": 1}})
 assert [r["deck"] for r in raw_jp["pending"]] == ["日本語 Core"], raw_jp["pending"]
+
+# --- deck filter: "all decks" and "none of your decks still exist" must not
+# --- collapse into the same unfiltered query -------------------------------
+assert data._deck_where(None) == ("", []), data._deck_where(None)
+assert data._deck_where(set()) == (" AND 1=0", []), data._deck_where(set())
+w, ps = data._deck_where({7, 9})
+assert w == " AND did IN (?,?)" and sorted(ps) == [7, 9], (w, ps)
+
+# A filter naming only decks that no longer exist (renamed, deleted, or nested
+# under a parent) yields an empty include set. Every consumer must then agree on
+# "nothing", instead of the row loops showing nothing while the SQL-backed cards
+# reported the whole collection.
+raw_none = data.build_dataset(FakeCol(), {"data": {"matureThresholdDays": 21, "cutoffHour": None,
+                                                   "includeDecks": ["NoSuchDeck"], "streakMinCards": 1}})
+assert sum(d["total"] for d in raw_none["days"]) == 0, "history must be empty"
+assert raw_none["decks"] == [], raw_none["decks"]
+assert raw_none["pending"] == [], raw_none["pending"]
+assert sum(f["total"] for f in raw_none["forecast"]) == 0, "forecast must be empty too"
+assert raw_none["projection"] == [], raw_none["projection"]
+
+# --- retention denominator --------------------------------------------------
+# `reviews` counts type-1 rows only, while again/hard/good/easy count type 1 AND
+# type 2 (relearning). So `again` can exceed `reviews`, and using `reviews` as
+# the denominator understates retention and can go negative. The JS layer
+# (data.js avgRetention, settings.jsx share image) must divide by the graded
+# total instead — this asserts the invariant that makes that the only safe
+# choice, and that this fixture actually exercises the mismatch.
+mismatch = False
+for d in raw["days"]:
+    graded = d["again"] + d["hard"] + d["good"] + d["easy"]
+    assert d["again"] <= graded, d
+    assert 0 <= (graded - d["again"]) / graded <= 1 if graded else True
+    if graded > d["reviews"]:
+        mismatch = True
+assert mismatch, "fixture no longer exercises relearning; retention regression is untested"
 
 import json
 print("days:", len(raw["days"]), "| today total:", d0["total"], "| decks:", [d["name"] for d in raw["decks"]])

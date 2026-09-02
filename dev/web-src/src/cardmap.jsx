@@ -5,14 +5,14 @@ import { GoalsCard, ActivityCard, StreakCard, OverviewCard } from "./cards-core.
 import { MonthCard, ForecastCard, AnswerButtonsCard, HourlyCard, BestDaysCard, MaturityCard, PendingCard, TimeSpentCard, PaceCard } from "./cards-extra.jsx";
 
 export function renderCard(key, ctx) {
-  const { anki, config, setConfig, range, chartType, onAddGoal, compact = false, streakBox } = ctx;
+  const { anki, config, setConfig, range, chartType, onAddGoal, onShare, compact = false, streakBox } = ctx;
   const c = compact;
   switch (key) {
     case "goals": return <GoalsCard anki={anki} range={range} onAddGoal={onAddGoal} compact={c} />;
     case "activity": return <ActivityCard anki={anki} range={range} chartType={chartType} compact={c} />;
     case "overview": return <OverviewCard anki={anki} range={range} chartType={chartType} compact={c} />;
     case "month": return <MonthCard anki={anki} compact={c} />;
-    case "streak": return <StreakCard anki={anki} compact={c} box={streakBox} />;
+    case "streak": return <StreakCard anki={anki} compact={c} box={streakBox} onShare={onShare} />;
     case "pending": return <PendingCard anki={anki} compact={c} />;
     case "forecast": return <ForecastCard anki={anki} compact={c} />;
     case "answerButtons": return <AnswerButtonsCard anki={anki} range={range} compact={c} />;

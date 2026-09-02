@@ -401,9 +401,10 @@ function ShareSection({ anki }) {
     const total = list.reduce((a, d) => a + (d.total || 0), 0);
     const timeSec = list.reduce((a, d) => a + (d.timeSec || 0), 0);
     const newC = list.reduce((a, d) => a + (d.newC || 0), 0);
-    let rev = 0, again = 0;
-    list.forEach(d => { rev += d.reviews || 0; again += d.again || 0; });
-    const retention = rev > 0 ? (rev - again) / rev : 0;
+    // Graded total as the denominator, not `reviews` — see avgRetention in data.js.
+    let graded = 0, again = 0;
+    list.forEach(d => { graded += (d.again || 0) + (d.hard || 0) + (d.good || 0) + (d.easy || 0); again += d.again || 0; });
+    const retention = graded > 0 ? (graded - again) / graded : 0;
     const speed = total > 0 ? timeSec / total : 0;
     // Streak is kept as current overall streak unless we want to compute it backwards,
     // which is complex. Using the global current streak is fine.

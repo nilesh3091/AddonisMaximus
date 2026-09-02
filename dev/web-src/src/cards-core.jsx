@@ -459,7 +459,7 @@ function HeatLegend({ compact, yearLabel }) {
   );
 }
 
-export function StreakCard({ anki, compact, box = 14 }) {
+export function StreakCard({ anki, compact, box = 14, onShare }) {
   const [wrapRef, availW] = useHeatWidth();
   const [sel, setSel] = React.useState(null);       // clicked day → pinned in the info box
   const [hov, setHov] = React.useState(null);       // day under the pointer
@@ -513,7 +513,14 @@ export function StreakCard({ anki, compact, box = 14 }) {
           <h2>Streak</h2>
           <span className="label-sm" style={{ marginLeft: 2 }}>{heat ? heat.yearLabel : ""}</span>
         </div>
-        <button className="act" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="share" size={14} /> Share</button>
+        {/* Opens the settings drawer, where the Share section exports the stats
+            sticker. Rendered only when a handler is supplied, so the button can
+            never ship as decoration that does nothing when clicked. */}
+        {onShare && (
+          <button className="act" onClick={onShare} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Icon name="share" size={14} /> Share
+          </button>
+        )}
       </div>
 
       <div className="card-body spread">

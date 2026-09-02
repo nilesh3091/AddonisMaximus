@@ -75,10 +75,20 @@ export function buildAnki(raw, config) {
     return d;
   }
   const sumDays = (list, key) => list.reduce((a, d) => a + (d[key] || 0), 0);
+  // The denominator has to be the GRADED total, not `reviews`. data.py fills
+  // `reviews` from review rows only (rtype 1) but fills the again/hard/good/easy
+  // buckets from reviews AND relearning steps (rtype 1 and 2), so counting
+  // `again` against `reviews` let every relearning "Again" press raise the lapse
+  // count without raising the denominator: retention read low, and on a day with
+  // more relearning steps than reviews it went negative. Graded matches data.py's
+  // own rec["retention"] and the Answer buttons card.
   function avgRetention(list) {
-    let rev = 0, again = 0;
-    list.forEach((d) => { rev += d.reviews; again += d.again; });
-    return rev > 0 ? (rev - again) / rev : 0;
+    let graded = 0, again = 0;
+    list.forEach((d) => {
+      graded += (d.again || 0) + (d.hard || 0) + (d.good || 0) + (d.easy || 0);
+      again += d.again || 0;
+    });
+    return graded > 0 ? (graded - again) / graded : 0;
   }
 
   function rangeList(range) {

@@ -1,16 +1,82 @@
 {
   "version": 1,
-  "appearance": { "theme": "strava", "chart": "area", "corners": "round", "textScale": 1 },
+  "appearance": {
+    "theme": "strava",
+    "chart": "area",
+    "corners": "round",
+    "textScale": 1,
+    "viewMode": "multi",
+    "stageHeight": 320,
+    "blocks": [
+      "goals",
+      "activity",
+      "streak"
+    ]
+  },
   "sections": {
-    "order": ["goals", "activity", "overview", "month", "streak", "forecast", "answerButtons", "hourly", "fsrs", "deckBoard", "bestDays", "records", "achievements", "maturity"],
-    "hidden": ["forecast", "answerButtons", "hourly", "fsrs", "deckBoard", "bestDays", "records", "achievements", "maturity"],
+    "order": [
+      "goals",
+      "activity",
+      "overview",
+      "month",
+      "streak",
+      "pending",
+      "pace",
+      "forecast",
+      "answerButtons",
+      "hourly",
+      "bestDays",
+      "maturity",
+      "time"
+    ],
+    "hidden": [
+      "pace",
+      "forecast",
+      "answerButtons",
+      "hourly",
+      "bestDays",
+      "maturity",
+      "time"
+    ],
     "defaultCard": "overview"
   },
   "goals": [
-    { "key": "cards", "label": "Cards", "icon": "layers", "source": "total", "unit": "count", "targetMode": "average", "weeklyTarget": 1200 },
-    { "key": "time", "label": "Study Time", "icon": "clock", "source": "time", "unit": "time", "targetMode": "average", "weeklyTarget": 25200 },
-    { "key": "new", "label": "New Cards", "icon": "plus", "source": "newC", "unit": "count", "targetMode": "average", "weeklyTarget": 120 },
-    { "key": "days", "label": "Days Studied", "icon": "check", "source": "daysStudied", "unit": "days", "targetMode": "average", "weeklyTarget": 7 }
+    {
+      "key": "cards",
+      "label": "Cards",
+      "icon": "layers",
+      "source": "total",
+      "unit": "count",
+      "targetMode": "average",
+      "weeklyTarget": 1200
+    },
+    {
+      "key": "time",
+      "label": "Study Time",
+      "icon": "clock",
+      "source": "time",
+      "unit": "time",
+      "targetMode": "average",
+      "weeklyTarget": 25200
+    },
+    {
+      "key": "new",
+      "label": "New Cards",
+      "icon": "plus",
+      "source": "newC",
+      "unit": "count",
+      "targetMode": "average",
+      "weeklyTarget": 120
+    },
+    {
+      "key": "days",
+      "label": "Days Studied",
+      "icon": "check",
+      "source": "daysStudied",
+      "unit": "days",
+      "targetMode": "average",
+      "weeklyTarget": 7
+    }
   ],
   "data": {
     "includeDecks": [],
@@ -19,6 +85,10 @@
     "streakMinCards": 1,
     "excludeSuspended": false
   },
-  "maturity": { "deck": "" },
-  "ui": { "range": "week" }
+  "maturity": {
+    "deck": ""
+  },
+  "ui": {
+    "range": "week"
+  }
 }

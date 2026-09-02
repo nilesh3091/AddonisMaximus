@@ -59,8 +59,21 @@ def _deck_filter_dids(col, cfg) -> set | None:
 
 
 def _deck_where(include_dids):
-    if not include_dids:
+    # None and set() mean opposite things and must not collapse into the same
+    # "no WHERE clause". None is "all decks"; an empty set is "the decks you
+    # picked no longer exist" — _deck_filter_dids returns that when includeDecks
+    # is non-empty but nothing matches (a filtered deck later renamed, deleted,
+    # or nested under a parent, since _top_deck makes "Anatomy" stop matching
+    # "Medicine::Anatomy"). The row-loop consumers test `is not None` and skip
+    # everything, so letting the SQL consumers fall through to "no filter" made
+    # the panel contradict itself: blank heat-map, zero streak and empty Pending
+    # next to a Forecast covering the whole collection. Match the row loops and
+    # return nothing; the stale names stay in the settings picker, so one toggle
+    # undoes it.
+    if include_dids is None:
         return "", []
+    if not include_dids:
+        return " AND 1=0", []
     qs = ",".join("?" * len(include_dids))
     return f" AND did IN ({qs})", list(include_dids)
 
@@ -146,14 +159,18 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
         rec["deckSplit"][deck] = rec["deckSplit"].get(deck, 0) + 1
         deck_totals[deck] = deck_totals.get(deck, 0) + 1
 
+        # One fromtimestamp per row, not three — this runs once per revlog row
+        # over a ~3-year window, on Anki's main thread, so the duplicates were
+        # a measurable slice of the deck-browser render on large collections.
+        hour = datetime.datetime.fromtimestamp(rev_sec).hour
         if rtype in (1, 2) and ease in (1, 2, 3, 4):
             rec[{1: "again", 2: "hard", 3: "good", 4: "easy"}[ease]] += 1
             deck_graded[deck] = deck_graded.get(deck, 0) + 1
-            hour_rev[datetime.datetime.fromtimestamp(rev_sec).hour] += 1
+            hour_rev[hour] += 1
             if ease == 1:
                 deck_again[deck] = deck_again.get(deck, 0) + 1
-                hour_again[datetime.datetime.fromtimestamp(rev_sec).hour] += 1
-        hour_counts[datetime.datetime.fromtimestamp(rev_sec).hour] += 1
+                hour_again[hour] += 1
+        hour_counts[hour] += 1
 
     for rec in days:
         rec["timeSec"] = int(round(rec["timeSec"]))

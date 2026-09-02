@@ -35,7 +35,7 @@ export function App() {
   }, [config.appearance]);
 
   const openSettings = () => setSettingsOpen(true);
-  const ctx = { anki, config, setConfig, range, chartType: config.appearance.chart, onAddGoal: openSettings, streakBox: 15 };
+  const ctx = { anki, config, setConfig, range, chartType: config.appearance.chart, onAddGoal: openSettings, onShare: openSettings, streakBox: 15 };
   const visible = visibleSections(config);
 
   return (

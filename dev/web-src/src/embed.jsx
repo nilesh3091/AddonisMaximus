@@ -32,6 +32,28 @@ const RANGE_CARDS = new Set(["goals", "activity", "overview", "answerButtons", "
 // never resizes Anki's page. Settings → Appearance → Card height sets it.
 const DEFAULT_STAGE_H = 320;
 
+// Resolve any CSS colour to a light/dark verdict. Custom properties come back
+// from getComputedStyle as raw tokens ("#fff", "oklch(...)", "white"), not as
+// rgb(), so let the engine normalise it: paint it on a throwaway node and read
+// the computed colour back. Returns null when the value isn't a colour at all.
+function surfaceIsLight(color) {
+  try {
+    const el = document.createElement("span");
+    el.style.cssText = "position:absolute;visibility:hidden;pointer-events:none";
+    el.style.color = color;
+    if (!el.style.color) return null;          // the engine rejected it
+    document.body.appendChild(el);
+    const rgb = getComputedStyle(el).color;
+    document.body.removeChild(el);
+    const m = rgb && rgb.match(/-?[\d.]+/g);
+    if (!m || m.length < 3) return null;
+    const [r, g, b] = m.slice(0, 3).map(Number);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;   // Rec. 601 luma
+  } catch (_) {
+    return null;
+  }
+}
+
 // Make the embed's card surfaces blend into Anki's page instead of being dark
 // boxes. We keep the theme's accent; only the neutral surfaces are overridden.
 function applyAnkiSurfaces(host) {
@@ -63,6 +85,12 @@ function applyAnkiSurfaces(host) {
       S("--text2", `color-mix(in srgb, ${fg}, ${base} 35%)`);
       S("--text3", `color-mix(in srgb, ${fg}, ${base} 55%)`);
     }
+    // Anki's colour scheme — not the picked theme — decides how the card ends up,
+    // so record what we actually resolved. The heat ramp keys off this, since a
+    // "nothing done" day has to sit just off the card in whichever direction the
+    // card went (styles.css, [data-surface]).
+    const light = surfaceIsLight(base);
+    if (light !== null) host.setAttribute("data-surface", light ? "light" : "dark");
   } catch (_) {}
 }
 
@@ -135,7 +163,7 @@ export function EmbeddedApp({ host }) {
   };
 
   const openSettings = () => setSettingsOpen(true);
-  const ctx = { anki, config, setConfig, range: effRange, chartType: config.appearance.chart, onAddGoal: openSettings, compact: true, streakBox: 17 };
+  const ctx = { anki, config, setConfig, range: effRange, chartType: config.appearance.chart, onAddGoal: openSettings, onShare: openSettings, compact: true, streakBox: 17 };
 
   return (
     <div className="embed blend">
