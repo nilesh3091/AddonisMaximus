@@ -121,7 +121,8 @@ A `reload` is an **uncached, full-collection rebuild on Anki's main thread**, so
 Pre-flight gates: `config.json` is in sync with `config_store.DEFAULT_CONFIG`; `test_data.py` passes; the committed bundle rebuilds byte-identical from source (a stale committed bundle is a silent ship-the-wrong-code bug). Then upload `upload.zip` at ankiweb.net → *Share* → *Upload* (add-on **#306644033**).
 
 The package = **the contents of `addonismaximus/`**, so `__init__.py` sits at the zip root — never the `addonismaximus` folder itself. Everything under `dev/` is excluded.
-- **Includes:** `__init__.py`, `core.py`, `embed.py`, `dialog.py`, `config_store.py`, `data.py`, `manifest.json`, `config.json`, `config.md`, `web/addonismaximus.js`, `web/fonts/*.woff2`.
+- **Includes:** `__init__.py`, `core.py`, `embed.py`, `dialog.py`, `config_store.py`, `data.py`, `manifest.json`, `config.json`, `config.md`, `LICENSE`, `THIRD-PARTY-NOTICES.md`, `web/addonismaximus.js`, `web/fonts/*.woff2`, `web/fonts/OFL.txt`.
+- **Licensing — the package must carry its own notices.** The add-on is AGPL-3.0 but the zip used to ship no licence at all, no copyright notice, and no source pointer, while redistributing a *minified* bundle (esbuild `legalComments: "none"` strips React's MIT headers) and two SIL OFL fonts. So `addonismaximus/LICENSE` (AGPL, copied from the repo root), `addonismaximus/THIRD-PARTY-NOTICES.md` (React/react-dom/scheduler MIT texts) and `web/fonts/OFL.txt` (both font copyright lines + the OFL 1.1 body) now ship, and `manifest.json` carries `homepage` pointing at the GitHub source — which also fixes the Add-ons dialog's "View Add-on Page" button, previously enabled but a silent no-op on a sideloaded copy. Re-copy `LICENSE` if the root one ever changes.
 - **Excludes:** `meta.json`, `__pycache__/`, `*.pyc`, `*.log`, `.DS_Store`, and `web/index.html` (dev-only preview page, used by `dev/web-src/server.mjs`).
 - `upload/` and `upload.zip` are git-ignored.
 

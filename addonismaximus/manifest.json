@@ -2,7 +2,8 @@
   "name": "Addonis Maximus",
   "package": "addonismaximus",
   "author": "niles",
-  "homepage": "",
+  "homepage": "https://github.com/nilesh3091/AnkStats",
+  "human_version": "2026.09.02",
   "conflicts": [],
   "mod": 0
 }

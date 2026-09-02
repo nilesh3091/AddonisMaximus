@@ -34,8 +34,10 @@ AnkStats/
 │  ├─ config_store.py              settings defaults / load / save
 │  ├─ data.py                      real collection queries -> raw dataset
 │  ├─ manifest.json · config.json · config.md
+│  ├─ LICENSE · THIRD-PARTY-NOTICES.md   AGPL text + bundled React/font notices
 │  └─ web/                         BUILT, committed assets
-│     ├─ addonismaximus.js (CSS bundled in) · fonts/ · index.html (dev preview only)
+│     ├─ addonismaximus.js (CSS bundled in) · index.html (dev preview only)
+│     └─ fonts/  *.woff2 + OFL.txt (the fonts' licence must ship with them)
 └─ dev/                            does NOT ship
    ├─ package.sh                   build the AnkiWeb upload zip  ← use this to publish
    ├─ sync_config.py               regenerate config.json from config_store.DEFAULT_CONFIG
