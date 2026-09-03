@@ -75,7 +75,7 @@ dev/                     NOT shipped — nothing under dev/ goes in the upload z
   src/data.js            sample data + buildAnki() aggregation
   src/config.js          config load/save + appMode/webBase   src/useAddonisMaximus.jsx  shared state
   src/icons.jsx · src/styles.css
-  web-src/build.mjs · web-src/server.mjs · web-src/test_data.py · web-src/package.json
+  web-src/build.mjs · web-src/server.mjs · web-src/test_data.py · web-src/test_core.py · web-src/package.json
   package.sh             build the AnkiWeb upload zip (gates + staging) — USE THIS TO PUBLISH
   sync_config.py         regenerate addonismaximus/config.json from config_store.DEFAULT_CONFIG
   design_handoff_anki_progress/   original design artifacts (reference only)
@@ -83,13 +83,13 @@ dev/                     NOT shipped — nothing under dev/ goes in the upload z
 ```
 
 ## Data
-- Real data is ON: `core.USE_REAL_DATA = True`. Any query failure falls back to JS sample data, so the panel never breaks.
-- `data.py build_dataset(col, cfg)` → `raw = {today, dayCutoff, decks, allDecks, days[], hourly, forecast, projection, pending}`, cached on collection mod-time (so the home screen doesn't rescan every render).
+- Real data is ON: `core.USE_REAL_DATA = True`. Only a *failed* build falls back to JS sample data (`dataState: "unavailable"`), so the panel never breaks — see **Fixed — the home-screen freeze** for why a cold cache must not.
+- `data.py build_dataset(col, cfg, want_projection=True)` → `raw = {today, dayCutoff, decks, allDecks, days[], hourly, forecast, projection, pending}`. Cached in `core._cache` on `(col.mod, data-scope, sched.today, wants_projection)`; **built on a background thread**, never in the render hook.
 - Aggregation (trend / period / goals / streak / deckBoard) is in **JS** `buildAnki()` (`data.js`), run on the injected `raw`.
 - `pace()` (cards/hour: weighted average + slowest/fastest qualifying day + per-session capability) and `dayWindow()` (study time realistically left today = a typical day's minutes × the share of your hour-of-day pattern still ahead, capped by `dayCutoff`) power the **Hours Left** card — both are JS-side, no extra collection queries.
 - **FSRS** (most sensitive — validate against a real collection): stability/difficulty from `cards.data` JSON (`$.s`/`$.d`), retrievability via forgetting curve with decay −0.5.
 - Streak counts back from today; a not-yet-studied today does NOT reset it.
-- Offline logic test (no Anki): `python3 dev/web-src/test_data.py` — `data.py` has no `aqt` imports, so a fake collection drives it.
+- Offline logic tests (no Anki): `python3 dev/web-src/test_data.py` — `data.py` has no `aqt` imports, so a fake collection drives it — and `python3 dev/web-src/test_core.py`, which stubs `aqt` (including a `QueryOp` that *queues* instead of running, so "still building" is an inspectable state rather than a race) to cover the cache key, the cold-cache placeholder, single-flight, overlapping builds, and the projection gate. Both are `package.sh` gate 2.
 
 ## Settings (gear icon)
 Web drawer (`settings.jsx`) → `pycmd("addonismaximus:save:<json>")` → `config_store.py` (Anki `config.json`). Controls: section show/hide + order, goals (targets + custom goals), appearance (theme / text size / card height / chart / corners), data (decks / cutoff hour / mature threshold / streak min).
@@ -103,12 +103,14 @@ python3 dev/sync_config.py --check   # exit 1 if stale (dev/package.sh gate 1)
 ```
 
 ## JS ↔ Python bridge
-pycmd messages: `addonismaximus:save:<json>`, `addonismaximus:reload`, `addonismaximus:save_image:<data-uri>`.
+pycmd messages: `addonismaximus:save:<json>`, `addonismaximus:reload`, `addonismaximus:ready`, `addonismaximus:save_image:<data-uri>`.
+
+`ready` is sent once, on mount, only when the page booted with `dataState: "loading"`. The render hook starts the background build while it is still writing the HTML, so on a small collection the build can finish and push before the new page is committed — landing the eval on the outgoing document and stranding the panel on its placeholder. `ready` can only fire from a live page, and Python answers it through the same `start_build`, which serves the cache or joins the in-flight build, so it never costs a second scan.
 Window → `dialog.set_bridge_command`. Carousel → `gui_hooks.webview_did_receive_js_message` (`embed.py`).
 
 `save_image` backs the **Share** feature: Settings → *Share* (`ShareSection`, `settings.jsx`) draws a transparent stats sticker on a canvas and hands the PNG data-URI to Python, which offers a save dialog defaulting to `~/Downloads`. The Anki logo it stamps is an embedded base64 data URI (`src/anki_b64.js`), not a file read at runtime — that's most of the bundle's size. The Streak card's header **Share** button just opens this drawer (`onShare` is threaded like `onAddGoal`, from both mounts); it renders only when a handler is supplied, so it can never ship as a button that does nothing.
 
-A `reload` is an **uncached, full-collection rebuild on Anki's main thread**, so it is debounced 500 ms in `useAddonisMaximus.jsx` and only fires for the four `config.data` keys Python actually reads (`PY_DATA_KEYS`, mirrored by `core._PY_DATA_KEYS`). `streakMinCards` is applied purely in JS — asking Python to recompute for it rebuilt the whole collection for a byte-identical result.
+A `reload` is an **uncached, full-collection rebuild** — now on a background thread via `core.start_build`, but still seconds of work — so it is debounced 500 ms in `useAddonisMaximus.jsx` and only fires when the build's inputs actually change: the four `config.data` keys Python reads (`PY_DATA_KEYS`, mirrored by `core._PY_DATA_KEYS`) plus whether the Maturity card is on screen (`wantsProjection`, mirroring `core.wants_projection`). `streakMinCards` is applied purely in JS — asking Python to recompute for it rebuilt the whole collection for a byte-identical result.
 
 ## Publishing to AnkiWeb
 **Use the script — do not hand-zip.** `meta.json` and `__pycache__/` reappear every time Anki runs through the symlink, and `meta.json` contains *your own* config (deck names, goals), so hand-zipping ships it to every user.
@@ -118,7 +120,7 @@ A `reload` is an **uncached, full-collection rebuild on Anki's main thread**, so
 ./dev/package.sh --check    # run the gates only, package nothing
 ```
 
-Pre-flight gates: `config.json` is in sync with `config_store.DEFAULT_CONFIG`; `test_data.py` passes; the committed bundle rebuilds byte-identical from source (a stale committed bundle is a silent ship-the-wrong-code bug). Then upload `upload.zip` at ankiweb.net → *Share* → *Upload* (add-on **#306644033**).
+Pre-flight gates: `config.json` is in sync with `config_store.DEFAULT_CONFIG`; `test_data.py` and `test_core.py` pass; the committed bundle rebuilds byte-identical from source (a stale committed bundle is a silent ship-the-wrong-code bug). Then upload `upload.zip` at ankiweb.net → *Share* → *Upload* (add-on **#306644033**).
 
 The package = **the contents of `addonismaximus/`**, so `__init__.py` sits at the zip root — never the `addonismaximus` folder itself. Everything under `dev/` is excluded.
 - **Includes:** `__init__.py`, `core.py`, `embed.py`, `dialog.py`, `config_store.py`, `data.py`, `manifest.json`, `config.json`, `config.md`, `LICENSE`, `THIRD-PARTY-NOTICES.md`, `web/addonismaximus.js`, `web/fonts/*.woff2`, `web/fonts/OFL.txt`.
@@ -134,10 +136,60 @@ The package = **the contents of `addonismaximus/`**, so `__init__.py` sits at th
   - [ ] Optional: sanity-check against a real FSRS-6 collection — confirm Anki actually stores `$.decay` in `cards.data` (the read falls back to `-0.5` if absent, so there's no regression either way).
 - [x] Pre-release audit (see the release commit): fresh-install config defaults, light-mode heat ramp, day-rollover cache key, retention denominator, empty-deck-filter, settings-keystroke rescan, dead Share button. Regression assertions for the deck filter and the retention invariant are in `test_data.py`.
 
-### Known defect — not fixed, deliberately
-- [ ] **`build_dataset` runs synchronously on Anki's Qt main thread**, inside `gui_hooks.deck_browser_will_render_content` (`embed.py` → `core.bootstrap_json` → `compute_raw`). Anki's home screen freezes while it runs, with no progress indicator. Measured: **0.33 s** at 54k revlog / 39k cards, **~2.4 s** at 400k revlog, **~6.6 s** at 1.2M revlog. It recurs constantly because `_cache_key` includes `col.mod`, which every write bumps — so every return to the deck list after studying pays full price.
-  This is **pre-existing shipped behaviour, not a regression** (the render path dates to the first commit; `_projection` to `70c8123`, before the rename that produced the current listing), which is why the release went out with it. Fixing it properly means moving the build off the main thread with Anki's own `QueryOp`/`CollectionOp` and defining what a cold cache renders — *not* `taskman.run_in_background` doing raw `col.db.all`, and *not* falling back to the JS sample data (users would briefly see fabricated numbers). Debouncing `operation_did_execute` is required or it makes things worse.
-  Cheap wins already taken: one `fromtimestamp` per revlog row instead of three, and the reload debounce. Still available: gate `_projection` on whether the Maturity card is actually visible (needs `sections.hidden` in `_cache_key` and cache invalidation on save, or enabling the card renders "Not enough history yet"), and bound its two unbounded `GROUP BY cid` revlog scans.
+### Fixed — the home-screen freeze
+- [x] **`build_dataset` no longer runs on Anki's Qt main thread.** It used to, inside
+  `gui_hooks.deck_browser_will_render_content` (`embed.py` → `core.bootstrap_json` →
+  `compute_raw`), freezing the home screen with no progress indicator — and it recurred on
+  every return to the deck list after studying, because `_cache_key` includes `col.mod` and
+  every write bumps it. Measured on a synthetic collection: **6.0 s** at 1.2M revlog / 200k
+  cards, **1.9 s** at 400k / 80k.
+
+  The render hook now calls **`core.cached_raw(cfg)`**, which only ever reads the in-memory
+  cache and never touches the revlog, and — when that comes back empty —
+  **`core.start_build(cfg, deliver)`**, which hands `build_dataset` to a `QueryOp`
+  (`uses_collection=True`, so it serialises against Anki's own collection ops rather than
+  racing them the way a raw `taskman.run_in_background` over `col.db.all` would). No
+  `.with_progress()`: a modal spinner over the deck list would be worse than the wait it
+  replaces. When the build lands, `embed._push_data` evals
+  `window.addonismaximusSetData(<json>)` into `mw.web`, guarded with `&&` because the deck
+  browser and the reviewer share that webview.
+
+  **A cold cache renders a placeholder, never the sample data.** The bootstrap blob carries
+  `dataState`: `"ready"` (real dataset attached) · `"loading"` (a build is running — the web
+  layer shows "Reading your review history…" and waits) · `"unavailable"` (real data off, no
+  collection, or the build failed — only *then* does the JS sample collection stand in, which
+  is the long-standing fallback). A null dataset alone was ambiguous, and the old code resolved
+  it the worst possible way: by drawing the sample collection's numbers under the user's own
+  deck list. The dev preview has no bootstrap blob at all, so it still gets sample data;
+  `?loading=1` there previews the placeholder.
+
+  Single-flight: a second render for the same cache key joins the running build. A build for a
+  *different* key supersedes it, and each build delivers to the waiter list it captured at
+  start — reading `_build["waiters"]` back at completion let a finishing build clear its
+  successor's bookkeeping and strand the newer render on the placeholder forever
+  (`test_core.py` case 9).
+
+  **No `operation_did_execute` warm hook**, deliberately. Anki already refreshes the deck
+  browser when an op changes study state, so the render hook fires anyway and starts the
+  build — a warm hook there would be a duplicate scan, and during review (where every answer
+  bumps `col.mod`) it would rebuild the whole collection between cards.
+- [x] **`_projection` is gated on the Maturity ETA card actually being on screen.**
+  `core.wants_projection(cfg)` — mirrored in JS by `wantsProjection` in
+  `useAddonisMaximus.jsx` — is true when `maturity` is not in `sections.hidden` or when a
+  multi-mode block slot holds it. It is **part of `_cache_key`**, and part of the JS reload
+  trigger, so turning the card on misses the cache and rebuilds instead of rendering
+  "Not enough history yet" until the next collection write. The card ships hidden
+  (`DEFAULT_VISIBLE`), so the default install skips it: **1.9 s instead of 6.0 s** at 1.2M rows.
+- [x] **The projection's two unbounded `GROUP BY cid` revlog scans are one bounded scan.**
+  They read the entire table twice — every row ever written, including rows for deleted cards
+  and for decks the include-filter excludes — for 2.2 s + 1.9 s of that 6.0 s build. They are
+  now a single scan with two `CASE` aggregates, joined to exactly the cards the projection
+  iterates: **2.1 s**, or **0.68 s** with a two-deck filter. `_deck_where(dids, alias)` grew the
+  alias argument so the same filter serves both the `cards` query and the joined one. Verified
+  byte-identical against the old code on a 1.2M-row collection across four config scopes
+  (all decks / deck filter / excludeSuspended / mature=60).
+
+  Net: **1.9 s** default config, **4.4 s** with Maturity on — all of it off the main thread.
 
 ## Git restore points
 - `daf29a1` — working add-on BEFORE the compact resize.

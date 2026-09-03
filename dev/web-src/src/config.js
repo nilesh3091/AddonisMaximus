@@ -135,9 +135,46 @@ export function getInitialData() {
   return h && h.data ? h.data : null;
 }
 
+// What the host said about that dataset:
+//   "ready"       — `data` is the real collection.
+//   "loading"     — Python is building it on a background thread; wait for
+//                   addonismaximusSetData instead of rendering anything.
+//   "unavailable" — real data is off or a build failed; sample data is the
+//                   honest last resort.
+//   null          — no host at all (the dev preview), so sample data as before.
+// This distinction is the whole point: a missing dataset used to mean "render
+// the sample collection", which showed invented numbers as the user's own stats
+// for as long as the build took.
+export function getDataState() {
+  const h = host();
+  if (!h) {
+    // dev-only: there is no host in the browser preview, so ?loading=1 is the
+    // only way to look at the placeholder the cold-cache path renders.
+    try {
+      if (typeof location !== "undefined" && new URLSearchParams(location.search).get("loading")) return "loading";
+    } catch (_) {}
+    return null;
+  }
+  if (h.data) return "ready";
+  return h.dataState === "loading" ? "loading" : "unavailable";
+}
+
 // Ask Python to recompute the dataset (e.g. after a data-scope change).
 export function requestReload() {
   if (hasBridge()) window.pycmd("addonismaximus:reload");
+}
+
+// Tell Python this page exists and is waiting for a dataset.
+//
+// The render hook starts the background build while it is still writing the
+// HTML, so on a small collection the build can finish — and push — before this
+// page has been committed to the webview, landing the eval on the outgoing
+// document and leaving us on the placeholder forever. This announcement closes
+// that window: it can only run once the page is live, and Python answers it
+// from the cache, or by joining the build already in flight, so it never costs
+// a second scan.
+export function announceReady() {
+  if (hasBridge()) window.pycmd("addonismaximus:ready");
 }
 
 // Register a callback for when Python pushes a fresh dataset.

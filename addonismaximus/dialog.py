@@ -32,12 +32,22 @@ class AddonisMaximusDialog(QDialog):
 
     def _render(self) -> None:
         cfg = config_store.get_config()
+        raw = core.cached_raw(cfg)
         body = (
             '<div id="root"></div>'
-            f"<script>window.__ADDONISMAXIMUS__ = {core.bootstrap_json(cfg, 'window')};</script>"
+            f"<script>window.__ADDONISMAXIMUS__ = {core.bootstrap_json(cfg, 'window', raw)};</script>"
             f'<script src="{core.script_url()}"></script>'
         )
         self.web.stdHtml(body, css=[], js=[], default_css=False, context=self)
+        if raw is None:
+            core.start_build(cfg, self._push_data)
+
+    def _push_data(self, raw) -> None:
+        try:
+            payload = "null" if raw is None else json.dumps(raw)
+            self.web.eval(f"window.addonismaximusSetData && window.addonismaximusSetData({payload});")
+        except Exception as e:   # the window may have been closed mid-build
+            print("Addonis Maximus: dataset push failed —", repr(e))
 
     def _on_bridge_cmd(self, cmd: str):
         if cmd.startswith("addonismaximus:save:"):
@@ -71,10 +81,11 @@ class AddonisMaximusDialog(QDialog):
             except Exception as e:
                 print("Addonis Maximus: save_image failed —", repr(e))
             return None
+        if cmd == "addonismaximus:ready":
+            core.start_build(config_store.get_config(), self._push_data)
+            return None
         if cmd == "addonismaximus:reload":
-            raw = core.compute_raw(config_store.get_config(), force=True)
-            if raw is not None:
-                self.web.eval(f"window.addonismaximusSetData && window.addonismaximusSetData({json.dumps(raw)});")
+            core.start_build(config_store.get_config(), self._push_data, force=True)
             return None
         return self.web.defaultOnBridgeCmd(cmd)
 

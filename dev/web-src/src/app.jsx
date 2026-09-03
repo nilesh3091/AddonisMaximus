@@ -21,7 +21,7 @@ function RangeToggle({ value, onChange }) {
 }
 
 export function App() {
-  const { config, setConfig, anki } = useAddonisMaximusState();
+  const { config, setConfig, anki, loading } = useAddonisMaximusState();
   // Range toggle persists via config.ui.range (shared with the carousel).
   const stored = (config.ui && config.ui.range) || "week";
   const range = ["day", "week", "month"].includes(stored) ? stored : "week";
@@ -62,7 +62,12 @@ export function App() {
             <RangeToggle value={range} onChange={setRange} />
           </div>
 
-          {visible.length === 0 ? (
+          {loading ? (
+            // The dataset is still being built on Anki's background thread.
+            // Show nothing numeric until it lands — the sample collection under
+            // the heading "Your Progress" would be a lie.
+            <div className="card"><div className="empty-hint">Reading your review history…</div></div>
+          ) : visible.length === 0 ? (
             <div className="card"><div className="empty-hint">All cards are hidden. Open <b>Settings</b> (gear, top-left) to turn some back on.</div></div>
           ) : (
             <div className="grid">

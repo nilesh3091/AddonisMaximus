@@ -58,7 +58,10 @@ def _deck_filter_dids(col, cfg) -> set | None:
     return dids
 
 
-def _deck_where(include_dids):
+def _deck_where(include_dids, alias=""):
+    # `alias` qualifies the column for queries that join cards to another table
+    # (the projection's revlog scan), so the same filter serves both.
+    #
     # None and set() mean opposite things and must not collapse into the same
     # "no WHERE clause". None is "all decks"; an empty set is "the decks you
     # picked no longer exist" — _deck_filter_dids returns that when includeDecks
@@ -70,12 +73,13 @@ def _deck_where(include_dids):
     # next to a Forecast covering the whole collection. Match the row loops and
     # return nothing; the stale names stay in the settings picker, so one toggle
     # undoes it.
+    col = f"{alias}.did" if alias else "did"
     if include_dids is None:
         return "", []
     if not include_dids:
         return " AND 1=0", []
     qs = ",".join("?" * len(include_dids))
-    return f" AND did IN ({qs})", list(include_dids)
+    return f" AND {col} IN ({qs})", list(include_dids)
 
 
 def _day_cutoff(col, cfg) -> int:
@@ -95,7 +99,15 @@ def _day_cutoff(col, cfg) -> int:
 
 
 # ---------------------------------------------------------------- main
-def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
+def build_dataset(col, cfg: Dict[str, Any], want_projection: bool = True) -> Dict[str, Any]:
+    """`want_projection=False` skips _projection entirely.
+
+    It is by far the most expensive section — two GROUP BY scans of the whole
+    revlog plus a full card table read — and it feeds exactly one card (Maturity
+    ETA), which ships hidden. The caller (core.start_build) passes False whenever
+    that card is neither visible in the carousel nor sitting in a multi-mode
+    block, and puts the answer in the dataset cache key so enabling the card
+    rebuilds rather than serving the empty list."""
     data_cfg = cfg.get("data") or {}
     mature_days = int(data_cfg.get("matureThresholdDays") or 21)
 
@@ -203,7 +215,8 @@ def build_dataset(col, cfg: Dict[str, Any]) -> Dict[str, Any]:
 
     forecast = guard(lambda: _forecast(col, mature_days, include_dids),
                      [{"day": k, "young": 0, "mature": 0, "total": 0} for k in range(FORECAST_DAYS)])
-    projection = guard(lambda: _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_suspended), [])
+    projection = (guard(lambda: _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_suspended), [])
+                  if want_projection else [])
     pending = guard(lambda: _pending(col, include_dids), [])
 
     # Every top-level deck in the collection, regardless of the include filter or
@@ -273,11 +286,6 @@ def _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_sus
     now_ms = day_cutoff * 1000
     today_ms = _civil_utc_midnight_ms(day_cutoff)
 
-    # Per-card milestones from the full revlog: first study, first time mature.
-    first_ms = dict(col.db.all(
-        "SELECT cid, MIN(id) FROM revlog WHERE type IN (0,1,2,3) GROUP BY cid"))
-    matured_ms = dict(col.db.all(
-        "SELECT cid, MIN(id) FROM revlog WHERE ivl >= ? GROUP BY cid", mature_days))
     intake_floor_ms = now_ms - 30 * DAY_MS
 
     # Current card states grouped by top deck. By default ALL cards count
@@ -294,6 +302,31 @@ def _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_sus
         f"SELECT id, did, type, ivl FROM cards WHERE 1=1{susp}{extra}",
         *params,
     )
+
+    # Per-card milestones — first study, first time mature — in ONE pass over the
+    # revlog, joined to exactly the cards the loop below iterates.
+    #
+    # This used to be two separate `GROUP BY cid` scans of the entire table, each
+    # reading every row ever written including rows for deleted cards and for
+    # decks the include-filter excludes: 2.2s + 1.9s of a 6.0s build at 1.2M
+    # revlog rows. The two CASE aggregates compute the identical values in a
+    # single 2.1s scan (a card with no matching row still yields NULL, which is
+    # what the old dict lookups returned by being absent), and the join drops
+    # everything out of scope — 0.68s with a two-deck filter.
+    extra_c, params_c = _deck_where(include_dids, "c")
+    susp_c = " AND c.queue != -1" if exclude_suspended else ""
+    milestones_ms = {
+        cid: (first, mature) for cid, first, mature in col.db.all(
+            "SELECT r.cid,"
+            "       MIN(CASE WHEN r.type IN (0,1,2,3) THEN r.id END),"
+            "       MIN(CASE WHEN r.ivl >= ? THEN r.id END)"
+            "  FROM revlog r JOIN cards c ON c.id = r.cid"
+            f" WHERE 1=1{susp_c}{extra_c}"
+            " GROUP BY r.cid",
+            mature_days, *params_c,
+        )
+    }
+
     decks: Dict[str, Dict[str, Any]] = {}
     for cid, did, ctype, ivl in rows:
         name = did_top.get(did, "Default")
@@ -301,8 +334,7 @@ def _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_sus
             "deck": name, "mature": 0, "young": 0, "new": 0,
             "samples": [], "elapsed": [], "intro30": 0,
         })
-        f = first_ms.get(cid)
-        m = matured_ms.get(cid)
+        f, m = milestones_ms.get(cid, (None, None))
         if f is not None and m is not None and m >= f:
             b["samples"].append((m - f) / DAY_MS)
         if f is not None and f >= intake_floor_ms:

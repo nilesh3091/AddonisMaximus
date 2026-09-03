@@ -14,15 +14,39 @@ from aqt import mw, gui_hooks
 from . import core, config_store
 
 
+def _push_data(raw) -> None:
+    """Hand a freshly built dataset to the carousel, if it is still on screen.
+
+    The deck browser and the reviewer share mw.web, so by the time a build
+    finishes the page may have been replaced — hence the `&&` guard: on any
+    other screen addonismaximusSetData simply doesn't exist and the eval is a
+    no-op. A None dataset (the build failed) is passed through as null so the
+    panel stops waiting and falls back rather than showing a placeholder for
+    the rest of the session.
+    """
+    if mw.web is None:
+        return
+    payload = "null" if raw is None else json.dumps(raw)
+    mw.web.eval(f"window.addonismaximusSetData && window.addonismaximusSetData({payload});")
+
+
 def _on_will_render(deck_browser, content) -> None:
     try:
         cfg = config_store.get_config()
-        boot = core.bootstrap_json(cfg, "embed")
+        # cached_raw never touches the revlog, so this hook stays cheap no matter
+        # how big the collection is. When there is nothing cached — first render
+        # of the session, or anything at all was written to the collection since
+        # the last one, which is every single return from studying — the panel
+        # boots in its "loading" state and start_build fills it in off-thread.
+        raw = core.cached_raw(cfg)
+        boot = core.bootstrap_json(cfg, "embed", raw)
         content.stats += (
             '<div id="addonismaximus-embed"></div>'
             f"<script>window.__ADDONISMAXIMUS__ = {boot};</script>"
             f"<script src=\"{core.script_url()}\"></script>"
         )
+        if raw is None:
+            core.start_build(cfg, _push_data)
     except Exception as e:
         print("Addonis Maximus: embed render failed —", repr(e))
 
@@ -72,10 +96,19 @@ def _on_message(handled, message, context):
             print("Addonis Maximus: save_image failed —", repr(e))
         return (True, None)
 
+    if message == "addonismaximus:ready":
+        # The page booted in its "loading" state. Serve it from the cache, or
+        # join the build the render hook already started — start_build is
+        # idempotent per cache key, so this never costs a second scan. Without
+        # it, a build that finishes before the new page is committed pushes into
+        # the outgoing document and the panel waits forever.
+        core.start_build(config_store.get_config(), _push_data)
+        return (True, None)
+
     if message == "addonismaximus:reload":
-        raw = core.compute_raw(config_store.get_config(), force=True)
-        if raw is not None and mw.web is not None:
-            mw.web.eval(f"window.addonismaximusSetData && window.addonismaximusSetData({json.dumps(raw)});")
+        # Also off the main thread: this fires from the settings drawer when the
+        # data scope changes, and it is the same full rebuild the render hook does.
+        core.start_build(config_store.get_config(), _push_data, force=True)
         return (True, None)
 
     return handled

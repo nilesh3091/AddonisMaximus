@@ -94,8 +94,20 @@ function applyAnkiSurfaces(host) {
   } catch (_) {}
 }
 
+// Shown while Python builds the dataset off the main thread. It carries no
+// numbers on purpose — the carousel sits directly beneath the user's own deck
+// list, so anything drawn from the JS sample collection reads as their stats.
+function LoadingPanel() {
+  return (
+    <div className="embed-loading">
+      <span className="spin" />
+      <span>Reading your review history…</span>
+    </div>
+  );
+}
+
 export function EmbeddedApp({ host }) {
-  const { config, setConfig, anki } = useAddonisMaximusState();
+  const { config, setConfig, anki, loading } = useAddonisMaximusState();
   // The time-range toggle is persisted (config.ui.range) rather than ephemeral
   // state, so returning from study — which re-mounts this carousel — keeps the
   // range the user picked instead of resetting to "week".
@@ -164,6 +176,17 @@ export function EmbeddedApp({ host }) {
 
   const openSettings = () => setSettingsOpen(true);
   const ctx = { anki, config, setConfig, range: effRange, chartType: config.appearance.chart, onAddGoal: openSettings, onShare: openSettings, compact: true, streakBox: 17 };
+
+  // Cold cache: the dataset is still being built. Render only the placeholder —
+  // not the bar either, since the gear would open a settings drawer whose deck
+  // picker and goal averages would all be reading the sample collection.
+  if (loading) {
+    return (
+      <div className="embed blend">
+        <div className="embed-inner" style={{ "--embed-zoom": zoom }}><LoadingPanel /></div>
+      </div>
+    );
+  }
 
   return (
     <div className="embed blend">

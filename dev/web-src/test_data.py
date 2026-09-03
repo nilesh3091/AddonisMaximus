@@ -30,12 +30,21 @@ class FakeDB:
             return []
         if "SELECT id, did FROM cards" in sql:
             return [(10, 2), (11, 3), (12, 4), (13, 1)]
-        if "MIN(id) FROM revlog WHERE type IN" in sql:   # first review per card
-            base = (CUTOFF - 200 * 86400) * 1000
-            return [(cid, base + cid * 86400 * 1000) for cid in (10, 11, 12, 13)]
-        if "MIN(id) FROM revlog WHERE ivl >=" in sql:    # first time mature per card
-            base = (CUTOFF - 150 * 86400) * 1000
-            return [(10, base), (12, base + 86400 * 1000)]
+        if "FROM revlog r JOIN cards c" in sql:
+            # (cid, first study, first time mature) in one pass — the projection's
+            # per-card milestones. NULL where the card has no matching row, which
+            # is what the two separate GROUP BY dicts used to express by omission.
+            first = (CUTOFF - 200 * 86400) * 1000
+            mature = (CUTOFF - 150 * 86400) * 1000
+            rows = [(10, first + 10 * 86400 * 1000, mature),
+                    (11, first + 11 * 86400 * 1000, None),
+                    (12, first + 12 * 86400 * 1000, mature + 86400 * 1000),
+                    (13, first + 13 * 86400 * 1000, None)]
+            if "c.queue != -1" in sql:      # excludeSuspended reaches this join too
+                assert "AND c.queue != -1" in sql, sql
+            return rows
+        if "GROUP BY cid" in sql:
+            raise AssertionError("the two unbounded GROUP BY cid revlog scans are gone: " + sql)
         if "SELECT id, did, type, ivl FROM cards" in sql:  # projection card states
             # (id, did, type, ivl): two mature, one young, one new — plus a
             # SUSPENDED unseen card (14): suspended decks must count as intake.
@@ -176,6 +185,27 @@ assert raw_none["decks"] == [], raw_none["decks"]
 assert raw_none["pending"] == [], raw_none["pending"]
 assert sum(f["total"] for f in raw_none["forecast"]) == 0, "forecast must be empty too"
 assert raw_none["projection"] == [], raw_none["projection"]
+
+# --- the projection gate ----------------------------------------------------
+# _projection is the expensive half of the build (two full revlog scans in the
+# old shape, ~4s of a ~6s build at 1.2M rows) and feeds only the Maturity ETA
+# card, which ships hidden. want_projection=False must skip it entirely and
+# still return a well-formed dataset — core keys its cache on the same answer,
+# so enabling the card rebuilds rather than serving this empty list forever.
+raw_nop = data.build_dataset(FakeCol(), cfg, want_projection=False)
+assert raw_nop["projection"] == [], raw_nop["projection"]
+assert set(raw_nop) == set(raw), "skipping the projection must not change the dataset shape"
+assert sum(d["total"] for d in raw_nop["days"]) == sum(d["total"] for d in raw["days"])
+assert raw_nop["forecast"] == raw["forecast"]
+
+# --- _deck_where aliasing ---------------------------------------------------
+# The projection's revlog scan joins cards as `c`, so the same filter has to be
+# emitted qualified. An unaliased column there is not a syntax error — `did` is
+# unambiguous — so nothing would catch a regression except this.
+assert data._deck_where(None, "c") == ("", []), data._deck_where(None, "c")
+assert data._deck_where(set(), "c") == (" AND 1=0", [])
+w, ps = data._deck_where({7, 9}, "c")
+assert w == " AND c.did IN (?,?)" and sorted(ps) == [7, 9], (w, ps)
 
 # --- retention denominator --------------------------------------------------
 # `reviews` counts type-1 rows only, while again/hard/good/easy count type 1 AND
