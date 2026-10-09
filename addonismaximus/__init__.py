@@ -8,7 +8,7 @@ v3 or later; see the LICENSE file distributed with this add-on.  web/
 addonismaximus.js is a minified bundle — the sources that produced it, and the
 notices for the third-party code it embeds, are at:
 
-    https://github.com/nilesh3091/AnkStats
+    https://github.com/nilesh3091/AddonisMaximus
 """
 from __future__ import annotations
 

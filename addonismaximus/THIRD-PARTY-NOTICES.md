@@ -1,7 +1,7 @@
 # Third-party notices — Addonis Maximus
 
 Addonis Maximus itself is licensed AGPL-3.0; see LICENSE in this folder.
-Source: https://github.com/nilesh3091/AnkStats
+Source: https://github.com/nilesh3091/AddonisMaximus
 
 `web/addonismaximus.js` is a minified bundle. It embeds the libraries below,
 whose licence headers the minifier strips, so their notices are reproduced here

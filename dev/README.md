@@ -25,7 +25,7 @@ Click the **gear** for settings. Remove the dev install with:
 ## Layout
 
 ```
-AnkStats/
+AddonisMaximus/
 ├─ addonismaximus/               THE ADD-ON (loads in Anki; its *contents* are the upload)
 │  ├─ __init__.py                  web exports + embed.register()
 │  ├─ core.py                      web base, cached real-data builder, bootstrap JSON
