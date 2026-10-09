@@ -301,6 +301,20 @@ body, :host {
   font-family: var(--font-num);
 }
 .embed-bar .streak-pill .flame { color: var(--accent); display: inline-flex; }
+/* Which deck the panel is showing — only mounted on a deck's own overview screen,
+   where the numbers are that deck's alone. Truncates: deck names get long, and
+   the bar must not wrap or push the range toggle off the end. */
+.embed-bar .scope-pill {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+  background: var(--card); border: 1px solid var(--border); border-radius: 999px;
+  padding: 4px 11px 4px 9px; font-size: 12.5px; font-weight: 700; color: var(--text2);
+  font-family: var(--font-num);
+}
+.embed-bar .scope-pill svg { color: var(--accent); flex: 0 0 auto; }
+/* When the bar runs out of room the deck name is what gives — squashing the
+   range toggle instead would wrap its labels. */
+.embed-bar .range-toggle { flex: 0 0 auto; }
+.embed-bar .scope-pill .scope-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* one knob to size the whole carousel down to the heatmap's weight.
    --embed-zoom = base 0.656 × the user's Text size multiplier (set on the host
    in embed.jsx), so bumping text size scales fonts, rings, charts and spacing
@@ -499,6 +513,15 @@ body, :host {
 .set-row .set-desc { font-size: 11.5px; color: var(--text3); margin-top: 2px; }
 .set-row .set-label-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .set-row .set-label-wrap .si { color: var(--text2); display: inline-flex; flex: 0 0 auto; }
+
+/* Standing note in a settings section — e.g. "this panel is scoped to one deck",
+   which the deck filter under it cannot change. */
+.set-note {
+  font-size: 12px; line-height: 1.45; color: var(--text2);
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 9px 11px;
+}
+.set-note b { color: var(--text); font-weight: 700; }
 
 /* segmented control */
 .seg { display: inline-flex; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 2px; flex: 0 0 auto; }

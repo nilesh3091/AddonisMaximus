@@ -13,6 +13,7 @@ class Sched:
     today = 1400
 class Decks:
     def all_names_and_ids(self): return []
+    def name_if_exists(self, did): return {7: "Anatomy"}.get(did)
 class Col:
     mod = 100
     sched = Sched()
@@ -43,12 +44,13 @@ sys.modules["am"] = pkg
 
 BUILDS = []
 data = types.ModuleType("am.data")
-def build_dataset(col, cfg, want_projection=True):
-    BUILDS.append(want_projection)
-    return {"days": [], "projection": ["P"] if want_projection else [], "pending": []}
+def build_dataset(col, cfg, want_projection=True, deck_id=None):
+    BUILDS.append((want_projection, deck_id))
+    return {"days": [], "deck": deck_id,
+            "projection": ["P"] if want_projection else [], "pending": []}
 data.build_dataset = build_dataset
-data._pending = lambda col, dids: [{"deck": "D"}]
-data._deck_filter_dids = lambda col, cfg: None
+data._pending = lambda col, dids, deck_id=None, scope_root=None: [{"deck": scope_root or "D"}]
+data._deck_filter_dids = lambda col, cfg, deck_id=None: None
 sys.modules["am.data"] = data
 pkg.data = data
 
@@ -82,13 +84,13 @@ core.start_build(HIDDEN_ALL, got.append)
 assert len(RUNS) == 1, "single-flight broken"
 RUNS.pop().flush()
 assert len(got) == 2 and got[0] is got[1], got
-assert BUILDS == [False], "hidden Maturity card must skip the projection"
+assert BUILDS == [(False, None)], "hidden Maturity card must skip the projection"
 assert got[0]["projection"] == []
 print("background build: single-flight, both waiters served, projection skipped  ok")
 
 # 4. now it's cached: instant, no rebuild
 raw = core.cached_raw(HIDDEN_ALL)
-assert raw is not None and RUNS == [] and BUILDS == [False]
+assert raw is not None and RUNS == [] and BUILDS == [(False, None)]
 assert json.loads(core.bootstrap_json(HIDDEN_ALL, "embed", raw))["dataState"] == "ready"
 assert raw["pending"] == [{"deck": "D"}], "pending must be refreshed on every serve"
 print("warm cache serves without rebuilding                      ok")
@@ -96,10 +98,12 @@ print("warm cache serves without rebuilding                      ok")
 # 5. enabling the Maturity card must miss the cache and rebuild WITH the projection
 assert core.cached_raw(VISIBLE) is None, "projection flag must be in the cache key"
 core.start_build(VISIBLE, got.append); RUNS.pop().flush()
-assert BUILDS == [False, True], BUILDS
+assert BUILDS == [(False, None), (True, None)], BUILDS
 assert core.cached_raw(VISIBLE)["projection"] == ["P"]
-# ...and the hidden-card dataset is still the one a hidden config gets
-assert core.cached_raw(HIDDEN_ALL) is None  # evicted; would rebuild
+# ...and the dataset built without it is still there for a hidden config: the
+# cache holds several scopes, so flipping the card back doesn't rescan.
+assert core.cached_raw(HIDDEN_ALL)["projection"] == []
+assert RUNS == [] and len(BUILDS) == 2, BUILDS
 print("enabling Maturity rebuilds with the projection            ok")
 
 # 6. a collection write invalidates
@@ -107,8 +111,36 @@ MW.col.mod = 101
 assert core.cached_raw(VISIBLE) is None
 print("col.mod bump invalidates                                  ok")
 
+# 6b. a deck scope is a separate dataset, cached alongside the collection one —
+#     walking Decks -> deck -> Decks must not rebuild either of them.
+core.invalidate_cache(); BUILDS.clear()
+core.start_build(VISIBLE, None); RUNS.pop().flush()          # the home screen
+assert core.cached_raw(VISIBLE, 7) is None, "a deck must not be served the collection dataset"
+deck = []
+core.start_build(VISIBLE, deck.append, deck_id=7); RUNS.pop().flush()
+assert BUILDS == [(True, None), (True, 7)], BUILDS
+assert deck[0]["deck"] == 7, deck
+assert core.cached_raw(VISIBLE) is not None and core.cached_raw(VISIBLE, 7) is not None
+assert RUNS == [] and len(BUILDS) == 2, "returning to a visited scope must not rebuild"
+# the scope rides in the bootstrap blob: the deck name for the label, the key for
+# the guard that stops a late build repainting a page that has moved on.
+boot = json.loads(core.bootstrap_json(VISIBLE, "embed", deck[0], 7))
+assert boot["scope"] == {"deck": "Anatomy", "scopeKey": "deck:7"}, boot["scope"]
+assert json.loads(core.bootstrap_json(VISIBLE, "embed", None))["scope"] == {"deck": None, "scopeKey": "collection"}
+# pending is rebuilt per scope on every serve, deck name and all
+assert core.cached_raw(VISIBLE, 7)["pending"] == [{"deck": "Anatomy"}]
+print("deck scope caches beside the collection dataset           ok")
+
+# 6c. ...but the cache is bounded: enough scopes and the oldest is dropped.
+for did in range(100, 100 + core._CACHE_MAX + 1):
+    core.start_build(VISIBLE, None, deck_id=did); RUNS.pop().flush()
+assert len(core._cache) == core._CACHE_MAX, len(core._cache)
+assert core.cached_raw(VISIBLE) is None, "the oldest scope must be evicted, not kept forever"
+core.invalidate_cache(); BUILDS.clear()
+print("the scope cache is bounded                                ok")
+
 # 7. a failed build delivers None (so the panel stops waiting), never raises
-def boom(col, cfg, want_projection=True): raise RuntimeError("db exploded")
+def boom(col, cfg, want_projection=True, deck_id=None): raise RuntimeError("db exploded")
 data.build_dataset = boom
 out = []
 core.start_build(VISIBLE, out.append); RUNS.pop().flush()

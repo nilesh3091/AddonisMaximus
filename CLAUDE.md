@@ -82,6 +82,28 @@ dev/                     NOT shipped — nothing under dev/ goes in the upload z
   README.md              project readme
 ```
 
+## Deck screens (per-deck stats)
+The same panel mounts on **three** surfaces, differing only in which slice of the
+collection it is handed (`embed.py`):
+- `deck_browser_will_render_content` → whole collection (honours `data.includeDecks`).
+- `overview_will_render_content` → the deck you opened **and its subdecks**, appended
+  after the counts table (under "Study Now").
+- `webview_did_inject_style_into_page` → the **congrats** screen a finished deck shows
+  instead of the overview; it is a SvelteKit page with no content hook, so the same
+  three tags are evalled in.
+
+The slice is a `deck_id` threaded through `core.cached_raw/start_build/bootstrap_json`
+into `data.build_dataset(..., deck_id=)`. In a deck scope the deck filter is *overridden*
+(not intersected — opening a deck outside your filter must not render an empty panel),
+and grouping moves one level down: `_group_name` buckets by the level below the opened
+deck, so `decks` / `deckSplit` / `pending` / `projection` show its **subdecks**.
+`allDecks` stays the whole collection so the Settings picker never traps you.
+`core._cache` is a small LRU (`_CACHE_MAX`), not one slot, so Decks → deck → Decks
+doesn't rebuild either dataset; `scope_key` rides in the bootstrap blob and gates
+`embed._push_data`, so a late build can't repaint a page that has moved on. The web
+layer only labels it (`deckScope()` → the pill in the embed bar; dev preview: `?deck=Name`).
+Offline test: `python3 dev/web-src/test_embed.py` (package.sh gate 2).
+
 ## Data
 - Real data is ON: `core.USE_REAL_DATA = True`. Only a *failed* build falls back to JS sample data (`dataState: "unavailable"`), so the panel never breaks — see **Fixed — the home-screen freeze** for why a cold cache must not.
 - `data.py build_dataset(col, cfg, want_projection=True)` → `raw = {today, dayCutoff, decks, allDecks, days[], hourly, forecast, projection, pending}`. Cached in `core._cache` on `(col.mod, data-scope, sched.today, wants_projection)`; **built on a background thread**, never in the render hook.

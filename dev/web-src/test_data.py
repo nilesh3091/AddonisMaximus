@@ -19,6 +19,19 @@ class FakeDecks:
         return [D(1, "Default"), D(2, "日本語 Core"), D(3, "日本語 Core::Kanji"), D(4, "Anatomy")]
 
 
+CARD_DID = {10: 2, 11: 3, 12: 4, 13: 1, 14: 2}
+
+
+def _filter_dids(sql, params):
+    """The deck ids in a query's `did IN (...)`, or None when it has no filter.
+    Lets the fake answer a scoped query the way SQLite would, instead of handing
+    back the whole collection and quietly passing every deck-scope assertion."""
+    if " IN (" not in sql:
+        return None
+    n = sql.count("?", sql.index(" IN ("))
+    return set(params[len(params) - n:])
+
+
 class FakeDB:
     def all(self, sql, *params):
         # This fake matches on SQL substrings and otherwise ignores WHERE
@@ -30,6 +43,7 @@ class FakeDB:
             return []
         if "SELECT id, did FROM cards" in sql:
             return [(10, 2), (11, 3), (12, 4), (13, 1)]
+        dids = _filter_dids(sql, params)
         if "FROM revlog r JOIN cards c" in sql:
             # (cid, first study, first time mature) in one pass — the projection's
             # per-card milestones. NULL where the card has no matching row, which
@@ -42,6 +56,8 @@ class FakeDB:
                     (13, first + 13 * 86400 * 1000, None)]
             if "c.queue != -1" in sql:      # excludeSuspended reaches this join too
                 assert "AND c.queue != -1" in sql, sql
+            if dids is not None:            # the join carries the deck filter
+                rows = [r for r in rows if CARD_DID[r[0]] in dids]
             return rows
         if "GROUP BY cid" in sql:
             raise AssertionError("the two unbounded GROUP BY cid revlog scans are gone: " + sql)
@@ -51,6 +67,8 @@ class FakeDB:
             cards = [(10, 2, 2, 40), (11, 3, 2, 5), (12, 4, 2, 30), (13, 1, 0, 0), (14, 2, 0, 0)]
             if "queue != -1" in sql:   # excludeSuspended: drop the suspended card 14
                 cards = [c for c in cards if c[0] != 14]
+            if dids is not None:
+                cards = [c for c in cards if c[1] in dids]
             return cards
         if "FROM revlog WHERE id >= ?" in sql:
             rows = []
@@ -87,13 +105,17 @@ class FakeSched:
     day_cutoff = CUTOFF
     today = TODAY
 
-    def deck_due_tree(self):
+    def deck_due_tree(self, top_deck_id=None):
         # Root with top-level decks; "Default" has nothing pending (dropped).
-        return FakeNode("", 0, 0, 0, 0, children=[
+        # A node's counts include its children, exactly as Anki reports them.
+        root = FakeNode("", 0, 0, 0, 0, children=[
             FakeNode("Default", 1, 0, 0, 0),
-            FakeNode("日本語 Core", 2, 5, 2, 30),
+            FakeNode("日本語 Core", 2, 5, 2, 30, children=[FakeNode("Kanji", 3, 2, 1, 10)]),
             FakeNode("Anatomy", 4, 3, 0, 10),
         ])
+        if top_deck_id is None:
+            return root
+        return next((n for n in root.children if n.deck_id == top_deck_id), None)
 
 
 class FakeCol:
@@ -185,6 +207,45 @@ assert raw_none["decks"] == [], raw_none["decks"]
 assert raw_none["pending"] == [], raw_none["pending"]
 assert sum(f["total"] for f in raw_none["forecast"]) == 0, "forecast must be empty too"
 assert raw_none["projection"] == [], raw_none["projection"]
+
+# --- deck scope: the panel on a deck's own overview screen -------------------
+# Everything narrows to that deck and its subdecks, and the grouping moves down a
+# level — grouping a single deck's history by top-level deck would collapse the
+# whole panel to one bar.
+assert data._group_name("A::B::C", None) == "A"
+assert data._group_name("A::B::C", "A") == "B"
+assert data._group_name("A::B::C", "A::B") == "C"
+assert data._group_name("A", "A") == "A"          # cards sitting in the deck itself
+assert data._group_name("Other::X", "A") == "Other"   # out of scope; filtered out anyway
+assert data._scope_dids(FakeCol(), 2) == {2, 3}, "a deck scope includes its subdecks"
+assert data._scope_dids(FakeCol(), 4) == {4}
+
+raw_deck = data.build_dataset(FakeCol(), cfg, deck_id=2)   # 日本語 Core (+ ::Kanji)
+# 12 reviews/day cycle cids [10,11,12,13]; only 10 (did 2) and 11 (did 3) are in scope.
+assert raw_deck["days"][-1]["total"] == 6, raw_deck["days"][-1]["total"]
+assert set(raw_deck["days"][-1]["deckSplit"]) == {"日本語 Core", "Kanji"}, raw_deck["days"][-1]["deckSplit"]
+assert {d["name"] for d in raw_deck["decks"]} == {"日本語 Core", "Kanji"}, raw_deck["decks"]
+assert {p["deck"] for p in raw_deck["projection"]} == {"日本語 Core", "Kanji"}, raw_deck["projection"]
+# ...but the Settings deck picker still lists the whole collection, or a deck
+# screen would offer a one-deck filter with no way back.
+assert raw_deck["allDecks"] == raw["allDecks"] == ["Anatomy", "Default", "日本語 Core"], raw_deck["allDecks"]
+# A deck scope overrides the settings filter rather than intersecting with it:
+# opening a deck outside your saved filter must not render an empty panel.
+raw_out = data.build_dataset(FakeCol(), {"data": {"matureThresholdDays": 21, "cutoffHour": None,
+                                                  "includeDecks": ["Anatomy"], "streakMinCards": 1}}, deck_id=2)
+assert raw_out["days"][-1]["total"] == 6, raw_out["days"][-1]["total"]
+
+# pending, scoped: a row per subdeck plus the parent's own share (its counts
+# include its children, so the remainder is what sits directly in it).
+assert raw_deck["pending"] == [{"deck": "日本語 Core", "new": 3, "learn": 1, "review": 20},
+                               {"deck": "Kanji", "new": 2, "learn": 1, "review": 10}], raw_deck["pending"]
+# a deck with no subdecks is one row
+assert data.build_dataset(FakeCol(), cfg, deck_id=4)["pending"] == [
+    {"deck": "Anatomy", "new": 3, "learn": 0, "review": 10}]
+# a deck with nothing waiting drops out entirely, as on the home screen
+assert data.build_dataset(FakeCol(), cfg, deck_id=1)["pending"] == []
+# the dataset shape is identical either way — one web layer renders both
+assert set(raw_deck) == set(raw), set(raw_deck) ^ set(raw)
 
 # --- the projection gate ----------------------------------------------------
 # _projection is the expensive half of the build (two full revlog scans in the

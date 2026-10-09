@@ -44,9 +44,55 @@ def _top_deck(name: str) -> str:
     return name.split("::", 1)[0] if name else "Default"
 
 
-def _deck_filter_dids(col, cfg) -> set | None:
+def _leaf(name: str) -> str:
+    """The deck's own name, without its parents ("A::B::C" -> "C")."""
+    return name.split("::")[-1] if name else "Default"
+
+
+def _group_name(name: str, root: str | None) -> str:
+    """Which bucket a deck's reviews are counted under.
+
+    Collection scope groups by top-level deck, which is what the whole panel has
+    always shown. A deck scope (the overview screen) groups by the level *below*
+    the deck you opened, so "AnKing::Anatomy::Head" lands in "Anatomy" and cards
+    sitting directly in the deck land under its own leaf name — grouping a single
+    deck's history by top deck would collapse the whole card to one bar.
+    """
+    if not name:
+        return "Default"
+    if root is None:
+        return _top_deck(name)
+    if name == root:
+        return _leaf(root)
+    if name.startswith(root + "::"):
+        return name[len(root) + 2:].split("::", 1)[0]
+    return _top_deck(name)          # out of scope; filtered out anyway
+
+
+def _scope_dids(col, deck_id) -> set:
+    """The opened deck plus every subdeck under it."""
+    root = None
+    for d in col.decks.all_names_and_ids():
+        if d.id == deck_id:
+            root = d.name
+            break
+    if root is None:
+        return {deck_id}
+    return {d.id for d in col.decks.all_names_and_ids()
+            if d.name == root or d.name.startswith(root + "::")}
+
+
+def _deck_filter_dids(col, cfg, deck_id=None) -> set | None:
     """Set of deck ids to include (top-level name match, children included), or
-    None for 'all decks'."""
+    None for 'all decks'.
+
+    `deck_id` — the deck whose overview screen we are drawing on — overrides the
+    settings filter outright rather than intersecting with it: the user asked for
+    this deck by opening it, and an intersection would render an empty panel on
+    every deck outside their saved filter.
+    """
+    if deck_id is not None:
+        return _scope_dids(col, deck_id)
     include = (cfg.get("data") or {}).get("includeDecks") or []
     if not include:
         return None
@@ -99,8 +145,13 @@ def _day_cutoff(col, cfg) -> int:
 
 
 # ---------------------------------------------------------------- main
-def build_dataset(col, cfg: Dict[str, Any], want_projection: bool = True) -> Dict[str, Any]:
-    """`want_projection=False` skips _projection entirely.
+def build_dataset(col, cfg: Dict[str, Any], want_projection: bool = True,
+                  deck_id=None) -> Dict[str, Any]:
+    """`deck_id` scopes the whole dataset to one deck and its subdecks — that is
+    what the deck-overview panel renders; None is the whole collection (the home
+    screen), honouring the settings deck filter as before.
+
+    `want_projection=False` skips _projection entirely.
 
     It is by far the most expensive section — two GROUP BY scans of the whole
     revlog plus a full card table read — and it feeds exactly one card (Maturity
@@ -113,12 +164,15 @@ def build_dataset(col, cfg: Dict[str, Any], want_projection: bool = True) -> Dic
 
     day_cutoff = _day_cutoff(col, cfg)                # end of "today" (epoch sec)
     window_start_sec = day_cutoff - N_DAYS * DAY_SEC
-    include_dids = _deck_filter_dids(col, cfg)
+    include_dids = _deck_filter_dids(col, cfg, deck_id)
     exclude_suspended = bool(data_cfg.get("excludeSuspended"))
 
-    # cid -> did, and did -> top-level deck name (current deck; revlog has none).
+    # cid -> did, and did -> the bucket its reviews count under (current deck;
+    # the revlog carries none). Top-level deck normally; one level below the
+    # opened deck when we are scoped to one.
     deck_name = {d.id: d.name for d in col.decks.all_names_and_ids()}
-    did_top = {did: _top_deck(name) for did, name in deck_name.items()}
+    scope_root = deck_name.get(deck_id) if deck_id is not None else None
+    did_group = {did: _group_name(name, scope_root) for did, name in deck_name.items()}
     cid_did = {cid: did for cid, did in col.db.all("SELECT id, did FROM cards")}
 
     # Pre-build day buckets (oldest first; index N-1 == today).
@@ -167,7 +221,7 @@ def build_dataset(col, cfg: Dict[str, Any], want_projection: bool = True) -> Dic
         elif rtype == 2:
             rec["relearning"] += 1
 
-        deck = did_top.get(did, "Default")
+        deck = did_group.get(did, "Default")
         rec["deckSplit"][deck] = rec["deckSplit"].get(deck, 0) + 1
         deck_totals[deck] = deck_totals.get(deck, 0) + 1
 
@@ -215,14 +269,15 @@ def build_dataset(col, cfg: Dict[str, Any], want_projection: bool = True) -> Dic
 
     forecast = guard(lambda: _forecast(col, mature_days, include_dids),
                      [{"day": k, "young": 0, "mature": 0, "total": 0} for k in range(FORECAST_DAYS)])
-    projection = (guard(lambda: _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_suspended), [])
+    projection = (guard(lambda: _projection(col, mature_days, include_dids, day_cutoff, did_group, exclude_suspended), [])
                   if want_projection else [])
-    pending = guard(lambda: _pending(col, include_dids), [])
+    pending = guard(lambda: _pending(col, include_dids, deck_id, scope_root), [])
 
-    # Every top-level deck in the collection, regardless of the include filter or
-    # whether it has reviews in the window. This drives the Settings deck picker —
-    # it must NOT be filtered, or excluding a deck would hide the control to undo it.
-    all_decks = sorted(set(did_top.values()))
+    # Every top-level deck in the collection, regardless of the include filter, the
+    # deck scope, or whether it has reviews in the window. This drives the Settings
+    # deck picker — it must NOT be filtered, or excluding a deck would hide the
+    # control to undo it (and on a deck screen the picker would list one deck).
+    all_decks = sorted({_top_deck(name) for name in deck_name.values()})
 
     return {
         "today": today_ms, "decks": decks, "allDecks": all_decks, "days": days, "hourly": hourly,
@@ -236,11 +291,13 @@ def build_dataset(col, cfg: Dict[str, Any], want_projection: bool = True) -> Dic
     }
 
 
-def _pending(col, include_dids):
+def _pending(col, include_dids, deck_id=None, scope_root=None):
     """Cards waiting to be studied today, per top-level deck — new / learning /
     due. Read straight from the scheduler's due tree so the counts match exactly
     what Anki shows in the deck list (daily new/review limits already applied).
     Decks with nothing pending are dropped; the list is sorted busiest-first."""
+    if deck_id is not None:
+        return _pending_in_deck(col, deck_id, scope_root)
     tree = col.sched.deck_due_tree()
     rows: Dict[str, Dict[str, Any]] = {}
     for node in getattr(tree, "children", None) or []:
@@ -252,6 +309,39 @@ def _pending(col, include_dids):
         r["learn"] += int(getattr(node, "learn_count", 0) or 0)
         r["review"] += int(getattr(node, "review_count", 0) or 0)
     out = [r for r in rows.values() if (r["new"] + r["learn"] + r["review"]) > 0]
+    out.sort(key=lambda r: -(r["new"] + r["learn"] + r["review"]))
+    return out
+
+
+def _pending_in_deck(col, deck_id, scope_root=None):
+    """Same, scoped to one deck: a row per subdeck, plus one for the cards that
+    sit directly in the deck itself.
+
+    A node's counts already include its children (that is what Anki's deck list
+    shows), so the parent's own share is the remainder — floored at zero, since
+    the parent's daily limits can cap the total below the sum of its children.
+    """
+    node = col.sched.deck_due_tree(deck_id)
+    if node is None:
+        return []
+
+    def counts(n):
+        return (int(getattr(n, "new_count", 0) or 0),
+                int(getattr(n, "learn_count", 0) or 0),
+                int(getattr(n, "review_count", 0) or 0))
+
+    kids = list(getattr(node, "children", None) or [])
+    rows = [{"deck": _leaf(getattr(k, "name", "") or "Default"),
+             "new": c[0], "learn": c[1], "review": c[2]}
+            for k, c in ((k, counts(k)) for k in kids)]
+    new, learn, review = counts(node)
+    own = (max(0, new - sum(r["new"] for r in rows)),
+           max(0, learn - sum(r["learn"] for r in rows)),
+           max(0, review - sum(r["review"] for r in rows)))
+    if not kids or sum(own) > 0:
+        rows.append({"deck": _leaf(scope_root or getattr(node, "name", "") or "Default"),
+                     "new": own[0], "learn": own[1], "review": own[2]})
+    out = [r for r in rows if (r["new"] + r["learn"] + r["review"]) > 0]
     out.sort(key=lambda r: -(r["new"] + r["learn"] + r["review"]))
     return out
 
@@ -273,8 +363,8 @@ def _forecast(col, mature_days, include_dids):
     return buckets
 
 
-def _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_suspended=False):
-    """Per-top-deck maturity ETA — when will the deck be ~90% mature?
+def _projection(col, mature_days, include_dids, day_cutoff, did_group, exclude_suspended=False):
+    """Per-deck-group maturity ETA — when will the deck be ~90% mature?
 
     Empirical, from the account's own history: measure how long each
     already-mature card took (first review -> first interval >= threshold),
@@ -329,7 +419,7 @@ def _projection(col, mature_days, include_dids, day_cutoff, did_top, exclude_sus
 
     decks: Dict[str, Dict[str, Any]] = {}
     for cid, did, ctype, ivl in rows:
-        name = did_top.get(did, "Default")
+        name = did_group.get(did, "Default")
         b = decks.setdefault(name, {
             "deck": name, "mature": 0, "young": 0, "new": 0,
             "samples": [], "elapsed": [], "intro30": 0,

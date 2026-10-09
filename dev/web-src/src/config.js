@@ -189,8 +189,22 @@ export function webBase() {
   return (h && h.webBase) || ".";
 }
 
-// "embed" (carousel on the home screen) or "window" (full dialog). In a plain
-// browser, ?embed=1 forces the carousel for previewing.
+// Which slice of the collection this page is showing, as a deck name — the
+// panel is mounted on the deck browser (whole collection, null) and on a deck's
+// own overview screen (that deck and its subdecks). Python decides; the web
+// layer only labels it, since the dataset it is handed is already scoped.
+// Dev preview: ?deck=Name fakes a deck scope so the label can be seen offline.
+export function deckScope() {
+  const h = host();
+  if (h) return (h.scope && h.scope.deck) || null;
+  try {
+    if (typeof location !== "undefined") return new URLSearchParams(location.search).get("deck");
+  } catch (_) {}
+  return null;
+}
+
+// "embed" (carousel on the home screen or a deck's overview screen) or "window"
+// (full dialog). In a plain browser, ?embed=1 forces the carousel for previewing.
 export function appMode() {
   const h = host();
   if (h && h.mode) return h.mode;

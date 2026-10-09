@@ -1,4 +1,5 @@
-/* Embedded mode: a compact carousel on Anki's home screen below the heatmap.
+/* Embedded mode: a compact carousel on Anki's home screen below the heatmap, and
+   the same panel on a deck's overview screen showing that deck alone.
    One enabled card at a time; arrows / dots / swipe move between them.
    - Surfaces blend with Anki's own background (read at runtime).
    - The whole carousel is sized down via a single zoom (`.embed-inner`), and
@@ -8,7 +9,7 @@ import { Icon } from "./icons.jsx";
 import { useAddonisMaximusState, visibleSections } from "./useAddonisMaximus.jsx";
 import { renderCard } from "./cardmap.jsx";
 import { MultiView, MULTI_BLOCKS } from "./cards-core.jsx";
-import { SECTIONS } from "./config.js";
+import { SECTIONS, deckScope } from "./config.js";
 import { SettingsDrawer } from "./settings.jsx";
 
 function RangeToggle({ value, onChange, disabled, options = ["day", "week", "month"] }) {
@@ -106,6 +107,17 @@ function LoadingPanel() {
   );
 }
 
+// The deck this panel is scoped to, when it is mounted on a deck's overview
+// screen. Fixed for the life of the page (Anki re-renders it to change decks),
+// so it is read once rather than watched.
+const SCOPE_DECK = deckScope();
+
+// Only the deck's own name goes in the pill — a nested deck's full path is too
+// long for the bar, and the parent is right there in Anki's own heading.
+function scopeLabel(name) {
+  return name ? name.split("::").pop() : null;
+}
+
 export function EmbeddedApp({ host }) {
   const { config, setConfig, anki, loading } = useAddonisMaximusState();
   // The time-range toggle is persisted (config.ui.range) rather than ephemeral
@@ -193,6 +205,12 @@ export function EmbeddedApp({ host }) {
       <div className="embed-inner" style={{ "--embed-zoom": zoom }}>
         <div className="embed-bar">
           <button className="gearbtn" onClick={openSettings} aria-label="Open settings" title="Settings"><Icon name="gear" size={19} /></button>
+          {SCOPE_DECK && (
+            <span className="scope-pill" title={`Showing ${SCOPE_DECK} and its subdecks only`}>
+              <Icon name="layers" size={13} />
+              <span className="scope-name">{scopeLabel(SCOPE_DECK)}</span>
+            </span>
+          )}
           <div className="spacer" />
           <RangeToggle value={effRange} onChange={setRange} disabled={!multi && !RANGE_CARDS.has(cur)} options={rangeOptions} />
         </div>

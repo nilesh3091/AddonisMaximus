@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import OrderedDict
 
 from aqt import mw
 
@@ -16,9 +17,15 @@ from aqt import mw
 # fall back to its sample dataset.
 USE_REAL_DATA = True
 
-# Cache the computed dataset so we don't rescan the revlog on every deck-browser
+# Cache computed datasets so we don't rescan the revlog on every deck-browser
 # render — only when the collection changes or the data scope (decks/cutoff…) does.
-_cache = {"key": None, "raw": None}
+#
+# Keyed, small and LRU rather than a single slot, because there is now more than
+# one scope in play: the home screen's whole-collection dataset and a per-deck one
+# for every deck overview you open. With one slot, walking Decks -> deck -> Decks
+# would rebuild both datasets from scratch each way round.
+_CACHE_MAX = 4
+_cache = OrderedDict()          # cache key -> raw dataset
 
 # The only config["data"] keys build_dataset reads (data.py). streakMinCards is
 # applied entirely in the JS layer, so keying the cache on it would throw away a
@@ -68,7 +75,14 @@ def wants_projection(cfg) -> bool:
         return True
 
 
-def _cache_key(cfg):
+def scope_key(deck_id) -> str:
+    """Identifies which page a dataset belongs to, for the guard in embed._push_data:
+    a build that lands after the user has moved on must not overwrite whatever is on
+    screen now with another scope's numbers."""
+    return "collection" if deck_id is None else f"deck:{int(deck_id)}"
+
+
+def _cache_key(cfg, deck_id=None):
     try:
         mod = getattr(mw.col, "mod", None)
         if mod is None:
@@ -97,33 +111,61 @@ def _cache_key(cfg):
     # render "Not enough history yet" forever. The web layer mirrors this in its
     # reload trigger (useAddonisMaximus.jsx), so enabling the card asks for the
     # rebuild instead of waiting for the next collection write.
-    return (mod, scope, day, wants_projection(cfg))
+    return (mod, scope, day, wants_projection(cfg), scope_key(deck_id))
 
 
-def _refresh_pending(raw, cfg) -> None:
+def _refresh_pending(raw, cfg, deck_id=None) -> None:
     """"Pending today" is clock-sensitive: cards fall due and daily limits reset at
     rollover with no DB write, so the mod-time cache would serve it stale. Refresh
     just this section — it reads the scheduler's due tree, which Anki has already
     computed to draw the deck list beside us."""
     try:
         from . import data
-        raw["pending"] = data._pending(mw.col, data._deck_filter_dids(mw.col, cfg))
+        raw["pending"] = data._pending(
+            mw.col, data._deck_filter_dids(mw.col, cfg, deck_id), deck_id,
+            _deck_name(deck_id),
+        )
     except Exception as e:
         print("Addonis Maximus: pending refresh failed —", repr(e))
 
 
-def cached_raw(cfg):
+def _deck_name(deck_id):
+    """Display name of the deck a scope points at, or None for the collection."""
+    if deck_id is None or mw.col is None:
+        return None
+    try:
+        return mw.col.decks.name_if_exists(int(deck_id))
+    except Exception:
+        return None
+
+
+def _cache_get(key):
+    raw = _cache.get(key)
+    if raw is not None:
+        _cache.move_to_end(key)
+    return raw
+
+
+def _cache_put(key, raw):
+    _cache[key] = raw
+    _cache.move_to_end(key)
+    while len(_cache) > _CACHE_MAX:
+        _cache.popitem(last=False)
+
+
+def cached_raw(cfg, deck_id=None):
     """The dataset if a current one is already in hand, else None. Never queries
-    the revlog, so it is safe to call from the deck-browser render hook."""
+    the revlog, so it is safe to call from a render hook."""
     if not USE_REAL_DATA or mw.col is None:
         return None
-    if _cache["raw"] is None or _cache["key"] != _cache_key(cfg):
+    raw = _cache_get(_cache_key(cfg, deck_id))
+    if raw is None:
         return None
-    _refresh_pending(_cache["raw"], cfg)
-    return _cache["raw"]
+    _refresh_pending(raw, cfg, deck_id)
+    return raw
 
 
-def start_build(cfg, deliver=None, force=False) -> None:
+def start_build(cfg, deliver=None, force=False, deck_id=None) -> None:
     """Build the dataset on Anki's worker thread and hand it to `deliver`.
 
     build_dataset walks a three-year revlog window and (when the Maturity card is
@@ -148,11 +190,12 @@ def start_build(cfg, deliver=None, force=False) -> None:
             deliver(None)
         return
 
-    key = _cache_key(cfg)
-    if not force and _cache["key"] == key and _cache["raw"] is not None:
-        _refresh_pending(_cache["raw"], cfg)
+    key = _cache_key(cfg, deck_id)
+    cached = None if force else _cache_get(key)
+    if cached is not None:
+        _refresh_pending(cached, cfg, deck_id)
         if deliver:
-            deliver(_cache["raw"])
+            deliver(cached)
         return
 
     if _build["key"] == key:            # already running for this exact scope
@@ -173,14 +216,14 @@ def start_build(cfg, deliver=None, force=False) -> None:
 
     def op(col):
         from . import data
-        return data.build_dataset(col, cfg, want_projection=want_proj)
+        return data.build_dataset(col, cfg, want_projection=want_proj, deck_id=deck_id)
 
     def finish(raw):
         if _build["waiters"] is waiters:      # still the current build
             _build["key"], _build["waiters"] = None, []
         if raw is not None:
-            _cache["key"], _cache["raw"] = key, raw
-            _refresh_pending(raw, cfg)
+            _cache_put(key, raw)
+            _refresh_pending(raw, cfg, deck_id)
         for cb in waiters:
             try:
                 cb(raw)
@@ -202,11 +245,10 @@ def start_build(cfg, deliver=None, force=False) -> None:
 
 
 def invalidate_cache():
-    _cache["key"] = None
-    _cache["raw"] = None
+    _cache.clear()
 
 
-def bootstrap_json(cfg, mode: str, raw) -> str:
+def bootstrap_json(cfg, mode: str, raw, deck_id=None) -> str:
     """The window.__ADDONISMAXIMUS__ blob injected into the page before addonismaximus.js.
 
     `dataState` tells the web layer which of three situations it is in, because
@@ -232,4 +274,9 @@ def bootstrap_json(cfg, mode: str, raw) -> str:
         "dataState": state,
         "mode": mode,
         "webBase": web_base(),
+        # Which collection slice this page is showing. The deck-overview mount
+        # passes the open deck; the home screen passes nothing. scopeKey also
+        # gates the eval that delivers a finished build (embed._push_data), so a
+        # build for the page you just left can never repaint the one you are on.
+        "scope": {"deck": _deck_name(deck_id), "scopeKey": scope_key(deck_id)},
     })

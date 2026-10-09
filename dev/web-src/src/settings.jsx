@@ -3,7 +3,12 @@
    asks Python to recompute when the data scope changes). */
 import React from "react";
 import { Icon } from "./icons.jsx";
-import { SECTIONS, GOAL_SOURCES } from "./config.js";
+import { SECTIONS, GOAL_SOURCES, deckScope } from "./config.js";
+
+// Non-null when the drawer is opened from a deck's overview screen: the
+// dataset behind it is scoped to that deck, which the deck filter cannot
+// change, so say so rather than leaving a control that looks inert.
+const SCOPE_DECK = deckScope();
 import { ankiLogoUrl } from "./anki_b64.js";
 
 const THEMES = [
@@ -270,6 +275,12 @@ export function SettingsDrawer({ config, setConfig, anki, onClose }) {
                 <span className="tt-unit">cards</span>
               </div>
             </div>
+            {SCOPE_DECK && (
+              <div className="set-note" style={{ marginTop: 10 }}>
+                This panel is on <b>{SCOPE_DECK}</b>’s own screen, so it always shows that
+                deck and its subdecks — the deck filter below applies to the Decks screen.
+              </div>
+            )}
             {deckNames.length > 0 && (
               <div style={{ marginTop: 6 }}>
                 <div className="set-label" style={{ marginBottom: 4 }}>Include decks</div>

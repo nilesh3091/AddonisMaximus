@@ -26,7 +26,8 @@ python3 "$ROOT/dev/sync_config.py" --check || fail "config.json is stale — run
 say "2/5  data-layer tests"
 python3 "$ROOT/dev/web-src/test_data.py" >/dev/null || fail "dev/web-src/test_data.py failed"
 python3 "$ROOT/dev/web-src/test_core.py" >/dev/null || fail "dev/web-src/test_core.py failed"
-echo "test_data.py + test_core.py passed"
+python3 "$ROOT/dev/web-src/test_embed.py" >/dev/null || fail "dev/web-src/test_embed.py failed"
+echo "test_data.py + test_core.py + test_embed.py passed"
 
 say "3/5  committed bundle matches source"
 ( cd "$ROOT/dev/web-src" && npm run build --silent >/dev/null ) || fail "esbuild build failed"
