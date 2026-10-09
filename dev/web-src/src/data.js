@@ -396,7 +396,10 @@ export function buildAnki(raw, config) {
         ? (avgWeekly(g.source) || g.weeklyTarget || 0)
         : (g.weeklyTarget || 0);
       const target = Math.max(1, Math.round(weeklyBase * mult));
-      return { key: g.key, label: g.label, value, target, unit: g.unit, icon: g.icon, targetMode: mode };
+      // `mult` and `avg` let the in-place goal editor show and take a target in the
+      // period on screen ("133 cards/day") while config keeps the weekly base.
+      return { key: g.key, label: g.label, value, target, unit: g.unit, icon: g.icon, targetMode: mode,
+        mult, avg: Math.max(1, Math.round((avgWeekly(g.source) || 0) * mult)) };
     });
   }
 

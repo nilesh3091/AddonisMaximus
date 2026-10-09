@@ -439,6 +439,48 @@ body, :host {
 .dash-band > .card { padding: 0; background: transparent; border: 0; box-shadow: none; height: auto; }
 .dash-band > .card > .card-h { padding-right: 28px; }
 
+/* ---- goal rings you can edit in place: hover shows a pencil, click opens a
+   small editor under the ring ---- */
+.goal-col { position: relative; display: flex; justify-content: center; }
+.goal-hit {
+  position: relative; display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: 6px 12px; margin: -6px 0; border: 1px solid transparent; border-radius: 12px;
+  background: transparent; color: inherit; font: inherit; cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.goal-hit:hover, .goal-col.on .goal-hit { background: var(--card2); border-color: var(--border); }
+.goal-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.goal-pencil {
+  position: absolute; top: 5px; right: 6px; display: inline-flex; color: var(--text3);
+  opacity: 0; transition: opacity .15s;
+}
+.goal-hit:hover .goal-pencil, .goal-col.on .goal-pencil { opacity: 1; color: var(--text); }
+.goal-pop {
+  --w: 208px;
+  position: absolute; top: calc(100% + 12px); left: calc(50% - var(--w) / 2); z-index: 30;
+  width: var(--w); box-sizing: border-box; padding: 11px 12px 10px; text-align: left;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 9px;
+  background: var(--card2); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 34px rgba(0,0,0,.42); animation: fade .16s ease both;
+}
+/* the end columns keep the editor inside the card when the rings are packed tight */
+.goal-col.first .goal-pop { left: max(0px, calc(50% - var(--w) / 2)); }
+.goal-col.last .goal-pop { left: auto; right: max(0px, calc(50% - var(--w) / 2)); }
+.goal-col.first.last .goal-pop { left: calc(50% - var(--w) / 2); right: auto; }
+.goal-pop-h { font-size: 12.5px; font-weight: 700; color: var(--text); }
+.goal-pop-row { display: flex; align-items: center; gap: 7px; }
+.goal-pop-row .field.num-field { width: 76px; }
+.goal-pop-row .tt-unit { font-size: 12px; color: var(--text3); font-weight: 600; white-space: nowrap; }
+.goal-pop-note { font-size: 12px; line-height: 1.4; color: var(--text2); }
+.goal-pop-note b { color: var(--text); font-family: var(--font-num); }
+.goal-pop-more {
+  padding: 0; border: 0; background: transparent; cursor: pointer;
+  font-family: var(--font-ui); font-size: 11.5px; font-weight: 600; color: var(--text3);
+}
+.goal-pop-more:hover { color: var(--accent); }
+/* the carousel's stage is a fixed, clipped height: open over the ring, not below it */
+.embed-stage .goal-pop { top: 0; }
+
 .dash-goals, .dash-heat { flex: 0 0 auto; }
 .dash-trend { display: flex; flex-direction: column; gap: 12px; }
 .dash-trend-h { display: flex; align-items: center; }

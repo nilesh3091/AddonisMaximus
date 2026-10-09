@@ -35,13 +35,16 @@ function fmtTarget(g, range, fmt) {
 // a ring, its big number and its "10k cards/week" target line are formatted in
 // exactly one place. Every size is a prop because the two cards budget very
 // different amounts of vertical space for the same rings.
-export function GoalRings({ goals, fmt, range, size, stroke, pctSize, valSize, gap, colGap, labelGap = 3, minCol }) {
+export function GoalRings({ goals, fmt, range, size, stroke, pctSize, valSize, gap, colGap, labelGap = 3, minCol, onEditGoal, onMore }) {
+  const [editing, setEditing] = React.useState(null);
+  const n = goals.length;
   return (
     <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${minCol}px, 1fr))`, gap, alignItems: "center" }}>
       {goals.map((g, i) => {
         const pct = g.target > 0 ? Math.round((g.value / g.target) * 100) : 0;
-        return (
-          <div key={g.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: colGap }}>
+        const open = editing === g.key;
+        const col = (
+          <>
             <Ring value={g.value} max={g.target} size={size} stroke={stroke} delay={i * 120} color={GREEN}>
               <div className="num" style={{ fontSize: pctSize, color: GREEN, lineHeight: 1 }}>{pct}<span style={{ fontSize: "0.55em", marginLeft: 1 }}>%</span></div>
             </Ring>
@@ -49,6 +52,25 @@ export function GoalRings({ goals, fmt, range, size, stroke, pctSize, valSize, g
               <div className="num" style={{ fontSize: valSize, lineHeight: 1 }}>{fmtGoal(g, fmt)}</div>
               <div className="label" style={{ marginTop: labelGap, whiteSpace: "nowrap" }}>{fmtTarget(g, range, fmt)}</div>
             </div>
+          </>
+        );
+        if (!onEditGoal) {
+          return (
+            <div key={g.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: colGap }}>{col}</div>
+          );
+        }
+        return (
+          <div key={g.key} className={"goal-col" + (open ? " on" : "") + (i === 0 ? " first" : "") + (i === n - 1 ? " last" : "")}>
+            <button className="goal-hit" style={{ gap: colGap }} title="Edit this goal" aria-label={"Edit goal: " + g.label}
+              onClick={(e) => { e.stopPropagation(); setEditing(open ? null : g.key); }}>
+              {col}
+              <span className="goal-pencil"><Icon name="pencil" size={11} /></span>
+            </button>
+            {open && (
+              <GoalPop g={g} range={range} fmt={fmt} onClose={() => setEditing(null)}
+                onChange={(patch) => onEditGoal(g.key, patch)}
+                onMore={onMore ? () => { setEditing(null); onMore(); } : null} />
+            )}
           </div>
         );
       })}
@@ -56,7 +78,56 @@ export function GoalRings({ goals, fmt, range, size, stroke, pctSize, valSize, g
   );
 }
 
-export function GoalsCard({ anki, range, onAddGoal, compact }) {
+// The little editor a ring opens. It speaks the period on screen — the line under
+// the ring says "133 cards/day", so that is the number you type — and converts to
+// the weekly base config stores. Two decimals survive the round trip at every
+// range (the worst case, x52 for a year, drifts by 0.26).
+function GoalPop({ g, range, fmt, onChange, onClose, onMore }) {
+  const per = PERIOD_WORD[range] || "week";
+  const isTime = g.unit === "time";
+  const inMin = isTime && range === "day";            // a day's study time reads in minutes
+  const div = isTime ? (inMin ? 60 : 3600) : 1;
+  const show = (v) => String(Math.round((v / div) * 10) / 10);
+  const fixed = g.targetMode === "fixed";
+  const [draft, setDraft] = React.useState(show(g.target));
+  React.useEffect(() => {
+    const close = () => onClose();
+    const key = (e) => { if (e.key === "Escape") onClose(); };
+    // deferred, so the click that opened the editor does not also close it
+    const id = setTimeout(() => document.addEventListener("click", close), 0);
+    document.addEventListener("keydown", key);
+    return () => { clearTimeout(id); document.removeEventListener("click", close); document.removeEventListener("keydown", key); };
+  }, []);
+  const type = (text) => {
+    setDraft(text);
+    const v = Number(text);
+    if (!(v > 0)) return;
+    onChange({ targetMode: "fixed", weeklyTarget: Math.round(((v * div) / g.mult) * 100) / 100 });
+  };
+  const unit = isTime ? (inMin ? "min" : "hours") : g.unit === "days" ? "days" : (g.label || "cards").toLowerCase();
+  const avgText = isTime ? fmt.fmtDurShort(g.avg) : g.avg.toLocaleString();
+  return (
+    <div className="goal-pop" onClick={(e) => e.stopPropagation()}>
+      <div className="goal-pop-h">{g.label}</div>
+      <div className="seg">
+        <button className={fixed ? "" : "active"} onClick={() => onChange({ targetMode: "average" })}>Average</button>
+        <button className={fixed ? "active" : ""} onClick={() => { setDraft(show(g.target)); type(show(g.target)); }}>Custom</button>
+      </div>
+      {fixed ? (
+        <div className="goal-pop-row">
+          <input className="field num-field" type="number" min={0} step={isTime && !inMin ? 0.5 : 1} autoFocus value={draft}
+            onChange={(e) => type(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onClose(); }} />
+          <span className="tt-unit">{unit} / {per}</span>
+        </div>
+      ) : (
+        <div className="goal-pop-note">Follows your usual pace: <b>{avgText}</b> / {per}</div>
+      )}
+      {onMore ? <button className="goal-pop-more" onClick={onMore}>All goal settings</button> : null}
+    </div>
+  );
+}
+
+export function GoalsCard({ anki, range, onAddGoal, onEditGoal, compact }) {
   const goals = anki.goals(range);
   return (
     <div className="card">
@@ -74,7 +145,8 @@ export function GoalsCard({ anki, range, onAddGoal, compact }) {
             pctSize={compact ? 24 : 31}          /* % inside the ring */
             valSize={compact ? 19 : 25}          /* goal number below the ring */
             gap={compact ? 14 : 22} colGap={compact ? 10 : 14}
-            labelGap={compact ? 3 : 5} minCol={compact ? 100 : 134} />
+            labelGap={compact ? 3 : 5} minCol={compact ? 100 : 134}
+            onEditGoal={onEditGoal} onMore={onAddGoal} />
         )}
       </div>
     </div>
@@ -657,7 +729,7 @@ export function OverviewCard({ anki, range, chartType, compact }) {
 // the card itself, drawn by the `renderAny` MultiView is handed.
 export const MULTI_BLOCKS = ["goals", "activity", "streak"];
 
-function RingsBlock({ anki, range, compact, onAddGoal }) {
+function RingsBlock({ anki, range, compact, onAddGoal, onEditGoal }) {
   const goals = anki.goals(range);
   if (goals.length === 0) {
     return (
@@ -672,7 +744,8 @@ function RingsBlock({ anki, range, compact, onAddGoal }) {
       size={compact ? 74 : 94} stroke={compact ? 7 : 9}
       pctSize={compact ? 18 : 23} valSize={compact ? 15 : 19}
       gap={compact ? 10 : 18} colGap={compact ? 7 : 10}
-      labelGap={compact ? 2 : 4} minCol={compact ? 84 : 112} />
+      labelGap={compact ? 2 : 4} minCol={compact ? 84 : 112}
+      onEditGoal={onEditGoal} onMore={onAddGoal} />
   );
 }
 
@@ -722,10 +795,17 @@ function TrendBlock({ anki, range, chartType, compact }) {
   );
 }
 
+// Patch one goal in config by key. Null when the mount hands us no setConfig, so
+// the rings simply stay read-only rather than offering an edit that goes nowhere.
+export function goalEditor({ config, setConfig }) {
+  if (!config || !setConfig) return null;
+  return (key, patch) => setConfig({ ...config, goals: (config.goals || []).map((g) => (g.key === key ? { ...g, ...patch } : g)) });
+}
+
 export function renderBlock(key, ctx) {
   const { anki, range, chartType, compact, onAddGoal, renderAny } = ctx;
   switch (key) {
-    case "goals": return <RingsBlock anki={anki} range={range} compact={compact} onAddGoal={onAddGoal} />;
+    case "goals": return <RingsBlock anki={anki} range={range} compact={compact} onAddGoal={onAddGoal} onEditGoal={goalEditor(ctx)} />;
     case "activity": return <TrendBlock anki={anki} range={range} chartType={chartType} compact={compact} />;
     // the streak lives in the panel header, so the calendar drops its own
     case "streak": return <HeatmapPanel anki={anki} compact={compact} box={compact ? 11 : 14} showHeader={false} />;
